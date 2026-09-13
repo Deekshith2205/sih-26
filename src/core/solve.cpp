@@ -95,10 +95,7 @@ const char* class_name(ProblemClass c) {
 /// right. Downgrading is the honest outcome: the solve failed numerically, and saying so is
 /// worth more than a plausible-looking row.
 void refuse_a_non_finite_answer(Solution* solution, Logger& logger) {
-  const bool claims_a_point = solution->status == SolveStatus::kOptimal ||
-                              solution->status == SolveStatus::kFeasible ||
-                              solution->status == SolveStatus::kIterationLimit ||
-                              solution->status == SolveStatus::kTimeLimit;
+  const bool claims_a_point = sankhya::claims_a_point(*solution);
   if (!claims_a_point) return;
 
   const bool finite = std::isfinite(solution->objective) &&
@@ -180,7 +177,7 @@ void keep_only_a_proved_certificate(Solution* solution, const Model& model, Logg
 void polish_with_the_interior_point(Solution* first, const Model& model, const Options& options,
                                     Logger& logger, const Timer& timer) {
   if (!options.get_bool("pdhg_polish")) return;
-  if (first->status == SolveStatus::kOptimal || !claims_a_point(first->status)) return;
+  if (first->status == SolveStatus::kOptimal || !claims_a_point(*first)) return;
   const auto n = static_cast<std::size_t>(model.num_cols());
   const auto m = static_cast<std::size_t>(model.num_rows());
   if (first->col_value.size() != n || first->row_dual.size() != m ||
@@ -243,8 +240,7 @@ constexpr double kPdhgShareOfTheTimeLimit = 0.7;
 
 void reconcile_status_with_measurement(Solution* solution, const Options& options,
                                        Logger& logger, bool check_dual) {
-  const bool claims_a_point =
-      solution->status == SolveStatus::kOptimal || solution->status == SolveStatus::kFeasible;
+  const bool claims_a_point = sankhya::claims_a_point(*solution);
   if (!claims_a_point) return;
 
   const double primal_tolerance = options.get_double("primal_feasibility_tolerance");
@@ -268,9 +264,15 @@ void reconcile_status_with_measurement(Solution* solution, const Options& option
         "not a feasible point",
         to_string(solution->status), solution->primal_infeasibility,
         solution->primal_infeasibility_scaled, primal_tolerance);
-    solution->status = SolveStatus::kNumericalError;
-    solution->message = solution->message.empty() ? detail : solution->message + "; " + detail;
-    logger.warning("{}", detail);
+    if (solution->status == SolveStatus::kInterrupted) {
+      solution->clear_values();
+      solution->message = solution->message.empty() ? detail : solution->message + "; " + detail;
+      logger.warning("{}", detail);
+    } else {
+      solution->status = SolveStatus::kNumericalError;
+      solution->message = solution->message.empty() ? detail : solution->message + "; " + detail;
+      logger.warning("{}", detail);
+    }
     return;
   }
 
@@ -282,9 +284,15 @@ void reconcile_status_with_measurement(Solution* solution, const Options& option
         "engine reported {} but an integer column is fractional by {:.3e}, above the {:.1e} "
         "tolerance; this is a relaxation, not an integer solution",
         to_string(solution->status), solution->integrality_violation, integrality_tolerance);
-    solution->status = SolveStatus::kNumericalError;
-    solution->message = solution->message.empty() ? detail : solution->message + "; " + detail;
-    logger.warning("{}", detail);
+    if (solution->status == SolveStatus::kInterrupted) {
+      solution->clear_values();
+      solution->message = solution->message.empty() ? detail : solution->message + "; " + detail;
+      logger.warning("{}", detail);
+    } else {
+      solution->status = SolveStatus::kNumericalError;
+      solution->message = solution->message.empty() ? detail : solution->message + "; " + detail;
+      logger.warning("{}", detail);
+    }
     return;
   }
 

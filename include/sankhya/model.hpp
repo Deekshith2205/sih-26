@@ -76,7 +76,8 @@ enum class SolveStatus : std::uint8_t {
   kTimeLimit,
   kNodeLimit,
   kNumericalError,
-  kModelError
+  kModelError,
+  kInterrupted
 };
 
 /// Does a solve ending in this state hand back a point?
@@ -96,8 +97,9 @@ enum class SolveStatus : std::uint8_t {
 /// hand. The one exception is a node limit reached before branch and bound found any integer
 /// point, which reports no objective and infinite gaps rather than a point (see
 /// `src/mip/branch_and_bound.cpp`); that case predates this predicate and is unchanged by it.
-[[nodiscard]] constexpr bool claims_a_point(SolveStatus status) noexcept {
-  switch (status) {
+[[nodiscard]] constexpr bool claims_a_point(const Solution& solution) noexcept {
+  if (solution.status == SolveStatus::kInterrupted) return solution.has_point;
+  switch (solution.status) {
     case SolveStatus::kOptimal:
     case SolveStatus::kFeasible:
     case SolveStatus::kUnbounded:
@@ -108,7 +110,8 @@ enum class SolveStatus : std::uint8_t {
     case SolveStatus::kInfeasible:
     case SolveStatus::kInfeasibleOrUnbounded:
     case SolveStatus::kNumericalError:
-    case SolveStatus::kModelError: return false;
+    case SolveStatus::kModelError:
+    case SolveStatus::kInterrupted: return false;
   }
   return false;
 }
@@ -117,6 +120,24 @@ enum class SolveStatus : std::uint8_t {
 [[nodiscard]] const char* to_string(SolveStatus status) noexcept;
 [[nodiscard]] const char* to_string(BasisStatus status) noexcept;
 [[nodiscard]] const char* to_string(VarType type) noexcept;
+
+// =========================================================================================
+// Progress
+// =========================================================================================
+
+struct Progress {
+  enum class Phase : std::uint8_t { kPresolve, kLp, kTree };
+  Phase phase;
+  Count iterations = 0;
+  Count nodes = 0;
+  double objective = kInfinity;
+  double best_bound = -kInfinity;
+  double gap = kInfinity;
+  double elapsed_seconds = 0.0;
+  Count open_nodes = 0;
+};
+
+using ProgressCallback = std::function<int(const Progress&)>;
 
 // =========================================================================================
 // Model
@@ -222,6 +243,13 @@ class Model {
   /// handing a model to an engine: a malformed model produces a plausible-looking wrong
   /// answer rather than a crash, which is exactly the failure mode CLAUDE.md warns about.
   [[nodiscard]] std::string validate() const;
+
+  // ---- Progress and Interruption ------------------------------------------------------
+
+  ProgressCallback progress_callback;
+  mutable std::atomic<bool> interrupt_requested{false};
+
+  void interrupt() const noexcept { interrupt_requested.store(true, std::memory_order_relaxed); }
 };
 
 // =========================================================================================
@@ -233,6 +261,7 @@ class Model {
 class Solution {
  public:
   SolveStatus status = SolveStatus::kNotSolved;
+  bool has_point = false;
 
   /// Objective value at col_value, in the sense of the original model. Meaningless unless
   /// status is kOptimal or kFeasible.
@@ -361,7 +390,24 @@ class Solution {
 
   /// True when the status indicates a usable primal point.
   [[nodiscard]] bool has_primal_values() const noexcept {
-    return status == SolveStatus::kOptimal || status == SolveStatus::kFeasible;
+    return has_point;
+  }
+
+  /// Clear the vectors and quality measurements, leaving the status intact.
+  void clear_values() {
+    col_value.clear();
+    row_activity.clear();
+    row_dual.clear();
+    col_dual.clear();
+    col_status.clear();
+    row_status.clear();
+    objective = 0.0;
+    dual_bound = 0.0;
+    primal_infeasibility = 0.0;
+    primal_infeasibility_scaled = 0.0;
+    dual_infeasibility = 0.0;
+    dual_infeasibility_scaled = 0.0;
+    integrality_violation = 0.0;
   }
 
   /// Allocate every vector to match `model`, filled with zeros / kUnknown.
