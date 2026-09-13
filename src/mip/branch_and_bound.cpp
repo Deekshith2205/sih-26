@@ -39,6 +39,7 @@
 
 #include "sankhya/timer.hpp"
 #include "sankhya/tolerances.hpp"
+#include "../core/stop_controller.hpp"
 
 #include "simplex/primal_simplex.hpp"
 
@@ -839,18 +840,40 @@ Solution BranchAndBound::run() {
   bool dive = false;
   bool limit_hit = false;
   bool gap_target_met = false;
+  double open_bound = -std::numeric_limits<double>::infinity();
+
+  StopController stop(model_, timer_, time_limit_);
+  SolveStatus stop_status;
 
   while (!open_.empty()) {
     if (nodes_explored_ >= node_limit_) {
       limit_hit = true;
+      solution.status = SolveStatus::kNodeLimit;
       solution.message =
           fmt::format("stopped at the node limit after {} nodes", nodes_explored_);
       break;
     }
-    if (timer_.elapsed_seconds() > time_limit_) {
+
+    if (stop.should_stop([&]() {
+          open_bound = std::numeric_limits<double>::infinity();
+          for (const Index open_index : open_) {
+            open_bound = std::min(open_bound, nodes_[static_cast<std::size_t>(open_index)].bound);
+          }
+          Progress p;
+          p.phase = Progress::Phase::kTree;
+          p.iterations = 0; // Not tracking simplex iterations across the tree currently
+          p.nodes = nodes_explored_;
+          p.open_nodes = static_cast<long>(open_.size());
+          p.objective = have_incumbent_ ? incumbent_objective() : std::numeric_limits<double>::infinity();
+          p.best_bound = (model_.sense == ObjSense::kMaximize) ? -open_bound : open_bound;
+          p.gap = have_incumbent_ ? (incumbent_internal_ - open_bound) : std::numeric_limits<double>::infinity();
+          return p;
+        }, &stop_status)) {
       limit_hit = true;
-      solution.message = fmt::format("stopped at the time limit after {:.2f}s and {} nodes",
-                                     timer_.elapsed_seconds(), nodes_explored_);
+      solution.status = stop_status;
+      solution.message = stop_status == SolveStatus::kTimeLimit
+          ? fmt::format("stopped at the time limit after {:.2f}s and {} nodes", timer_.elapsed_seconds(), nodes_explored_)
+          : fmt::format("stopped by user interrupt after {:.2f}s and {} nodes", timer_.elapsed_seconds(), nodes_explored_);
       break;
     }
 
@@ -863,11 +886,7 @@ Solution BranchAndBound::run() {
     // gap means - it bounds how far the reported answer may be from proven optimal, not
     // which nodes are worth visiting.
     if (have_incumbent_) {
-      double open_bound = std::numeric_limits<double>::infinity();
-      for (const Index open_index : open_) {
-        open_bound = std::min(open_bound, nodes_[static_cast<std::size_t>(open_index)].bound);
-      }
-      const double gap = incumbent_internal_ - open_bound;
+      const double gap = have_incumbent_ ? (incumbent_internal_ - open_bound) : std::numeric_limits<double>::infinity();
       // gap <= 0 means open_bound already >= the incumbent: every node still in the tree
       // is one can_prune() would fathom the moment it is popped, so nothing open can beat
       // what has already been found. That is proven optimality, not a tolerance being met
@@ -1183,6 +1202,7 @@ Solution BranchAndBound::run() {
   }
 
   solution.col_value = incumbent_x_;
+  solution.has_point = true;
   solution.nodes = nodes_explored_;
   solution.solve_seconds = timer_.elapsed_seconds();
 

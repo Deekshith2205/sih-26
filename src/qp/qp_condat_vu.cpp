@@ -52,7 +52,9 @@
 
 #include "sankhya/timer.hpp"
 #include "sankhya/tolerances.hpp"
+#include "../core/stop_controller.hpp"
 
+#include "../la/scaling.hpp"
 #include "convexity.hpp"
 
 namespace sankhya::qp {
@@ -224,7 +226,16 @@ Solution solve_convex_qp(const Model& model, const Options& options, Logger& log
   std::string message;
   SolveStatus status = SolveStatus::kIterationLimit;
 
-  for (; iterations < iteration_limit; ++iterations) {
+  StopController stop(model, timer, time_limit);
+  SolveStatus stop_status;
+
+  while (true) {
+    if (iterations >= iteration_limit) {
+      status = SolveStatus::kIterationLimit;
+      message = fmt::format("iteration limit {} reached", iteration_limit);
+      break;
+    }
+    ++iterations;
     // Primal: x' = proj_box( x - tau (c + Qx + A'y) ). The Qx term is the whole difference
     // from the LP engine; everything else is Chambolle-Pock unchanged.
     hessian_multiply(model, x, &qx);
@@ -251,10 +262,18 @@ Solution solve_convex_qp(const Model& model, const Options& options, Logger& log
     // ---- termination, every 50 iterations -------------------------------------------------
     if (iterations % 50 != 0) continue;
 
-    if (time_limit < std::numeric_limits<double>::max() &&
-        timer.elapsed_seconds() > time_limit) {
-      status = SolveStatus::kTimeLimit;
-      message = fmt::format("time limit {:.3g}s reached", time_limit);
+    if (stop.should_stop([&]() {
+          Progress p;
+          p.phase = Progress::Phase::kLp;
+          p.iterations = iterations;
+          p.objective = kInfinity; // QP does not track it mid-loop
+          p.best_bound = -kInfinity;
+          return p;
+        }, &stop_status)) {
+      status = stop_status;
+      message = stop_status == SolveStatus::kTimeLimit
+                    ? fmt::format("time limit {:.3g}s reached", time_limit)
+                    : "interrupted";
       break;
     }
 
@@ -299,6 +318,7 @@ Solution solve_convex_qp(const Model& model, const Options& options, Logger& log
   solution.status = status;
   solution.message = message;
   solution.col_value.assign(x.begin(), x.end());
+  solution.has_point = true;
   for (Index i = 0; i < m; ++i) {
     solution.row_dual[static_cast<std::size_t>(i)] = -sense * y[static_cast<std::size_t>(i)];
   }

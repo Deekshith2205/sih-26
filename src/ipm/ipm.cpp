@@ -40,6 +40,7 @@
 #include "la/scaling.hpp"
 #include "sankhya/timer.hpp"
 #include "sankhya/tolerances.hpp"
+#include "../core/stop_controller.hpp"
 
 namespace sankhya::ipm {
 namespace {
@@ -602,7 +603,8 @@ Solution InteriorPoint::finish(SolveStatus status, const std::string& message, C
   logger_.info("IPM: {} iterations, {} factorizations, {} regularized pivot(s) in total",
                iterations, factorizations_, regularized_pivots_);
   bool have_point = status == SolveStatus::kOptimal || status == SolveStatus::kFeasible ||
-                    status == SolveStatus::kIterationLimit || status == SolveStatus::kTimeLimit;
+                    status == SolveStatus::kIterationLimit || status == SolveStatus::kTimeLimit ||
+                    status == SolveStatus::kInterrupted;
 
   // A LIMIT IS NOT A LICENCE TO REPORT NONSENSE (#194). Reaching the time limit means the
   // iterate in hand is the answer, and normally it is a real point. It is not one if the
@@ -634,6 +636,7 @@ Solution InteriorPoint::finish(SolveStatus status, const std::string& message, C
     solution.dual_bound = model_.sense == ObjSense::kMaximize ? kInfinity : -kInfinity;
     return solution;
   }
+  solution.has_point = true;
   const double sense = model_.sense_multiplier();
   for (Index j = 0; j < n_; ++j) {
     const auto u = static_cast<std::size_t>(j);
@@ -686,6 +689,10 @@ Solution InteriorPoint::run() {
   Count iterations = 0;
   double previous_mu = std::numeric_limits<double>::infinity();
   int stalled = 0;
+
+  StopController stop(model_, timer, time_limit);
+  SolveStatus stop_status;
+
   for (;; ++iterations) {
     residuals();
     logger_.iteration(iterations,
@@ -752,11 +759,21 @@ Solution InteriorPoint::run() {
                       iterations, primal_infeasibility_, dual_infeasibility_, relative_gap),
           iterations, timer.elapsed_seconds());
     }
-    if (timer.elapsed_seconds() > time_limit) {
+    if (stop.should_stop([&]() {
+          Progress p;
+          p.phase = Progress::Phase::kLp;
+          p.iterations = iterations;
+          p.objective = model_.sense_multiplier() * objective_ + model_.objective_offset;
+          p.best_bound = model_.sense_multiplier() * objective_ + model_.objective_offset;
+          p.gap = relative_gap;
+          return p;
+        }, &stop_status)) {
       restore_best();
-      return finish(SolveStatus::kTimeLimit,
-                    fmt::format("time limit {:g}s reached", time_limit), iterations,
-                    timer.elapsed_seconds());
+      return finish(stop_status,
+                    stop_status == SolveStatus::kTimeLimit
+                        ? fmt::format("time limit {:g}s reached", time_limit)
+                        : "interrupted",
+                    iterations, timer.elapsed_seconds());
     }
     if (!factorize()) {
       if (factor_too_large_) {

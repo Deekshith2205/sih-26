@@ -48,6 +48,7 @@
 
 #include "sankhya/timer.hpp"
 #include "sankhya/tolerances.hpp"
+#include "../core/stop_controller.hpp"
 
 #include "../la/scaling.hpp"
 
@@ -380,9 +381,20 @@ Solution solve_pdhg(const Model& model, const Options& options, Logger& logger) 
   bool converged = false;
   bool logged_table = false;
 
+  StopController stop(model, timer, time_limit);
+  SolveStatus stop_status;
+
   while (true) {
     if (iteration >= iteration_limit) break;
-    if (timer.elapsed_seconds() > time_limit) break;
+
+    if (stop.should_stop([&]() {
+          Progress p;
+          p.phase = Progress::Phase::kLp;
+          p.iterations = iteration;
+          p.objective = best.primal;
+          p.best_bound = sense * best.dual + model.objective_offset;
+          return p;
+        }, &stop_status)) break;
 
     // ---- One PDHG step, [CP11] Algorithm 1 with step sizes tau = eta/omega, sigma =
     // eta*omega.
@@ -648,6 +660,7 @@ Solution solve_pdhg(const Model& model, const Options& options, Logger& logger) 
     const auto u = static_cast<std::size_t>(j);
     solution.col_value[u] = best_x.empty() ? 0.0 : best_x[u];
   }
+  solution.has_point = !best_x.empty();
   // Recompute the reduced costs at the reported point so the .sol file is self-consistent.
   const Residuals final_residuals = evaluate(problem, best_x, best_y, &activity, &reduced);
   for (Index j = 0; j < cols; ++j) {
@@ -697,8 +710,9 @@ Solution solve_pdhg(const Model& model, const Options& options, Logger& logger) 
   } else {
     // PDHG stopping short is the normal case, not an exception. Report the residuals it
     // actually reached rather than implying the point is optimal.
-    solution.status = timer.elapsed_seconds() > time_limit ? SolveStatus::kTimeLimit
-                                                           : SolveStatus::kIterationLimit;
+    solution.status = stop_status == SolveStatus::kTimeLimit || stop_status == SolveStatus::kInterrupted
+                          ? stop_status
+                          : SolveStatus::kIterationLimit;
     solution.message = fmt::format(
         "stopped at relative primal {:.3e}, dual {:.3e}, gap {:.3e} after {} iterations "
         "and {} restarts (target {:.1e})",

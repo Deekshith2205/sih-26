@@ -60,6 +60,7 @@
 
 #include "sankhya/timer.hpp"
 #include "sankhya/tolerances.hpp"
+#include "../core/stop_controller.hpp"
 
 #include "../la/lu.hpp"
 #include "../la/scaling.hpp"
@@ -1142,12 +1143,14 @@ Solution Simplex::finish(SolveStatus status, const std::string& message, Count i
   const bool have_point = status == SolveStatus::kOptimal || status == SolveStatus::kFeasible ||
                           status == SolveStatus::kIterationLimit ||
                           status == SolveStatus::kTimeLimit ||
-                          status == SolveStatus::kUnbounded;
+                          status == SolveStatus::kUnbounded ||
+                          status == SolveStatus::kInterrupted;
   if (!have_point) {
     solution.recompute_quality(model_);
     solution.dual_bound = status == SolveStatus::kInfeasible ? kInfinity : -kInfinity;
     return solution;
   }
+  solution.has_point = true;
 
   const double sense = model_.sense_multiplier();
   for (Index j = 0; j < n_; ++j) {
@@ -1326,6 +1329,7 @@ Solution Simplex::primal_loop(Timer& timer, Count* iterations_io) {
   Count& iterations = *iterations_io;
   const double time_limit = time_limit_;
   const std::int64_t iteration_limit = iteration_limit_;
+  StopController stop(model_, timer, time_limit);
   int degenerate_run = 0;
   bool bland = false;
   bool was_phase_one = true;
@@ -1688,11 +1692,22 @@ Solution Simplex::primal_loop(Timer& timer, Count* iterations_io) {
                     fmt::format("iteration limit {} reached", iteration_limit), iterations,
                     timer.elapsed_seconds());
     }
-    const double elapsed = timer.elapsed_seconds();
-    if (elapsed > time_limit) {
+
+    SolveStatus stop_status;
+    if (stop.should_stop([&]() {
+          Progress p;
+          p.phase = phase_one ? Progress::Phase::kPresolve : Progress::Phase::kLp;
+          p.iterations = iterations;
+          p.objective = phase_one ? max_infeasibility() : objective_;
+          p.best_bound = phase_one ? -kInfinity : objective_;
+          return p;
+        }, &stop_status)) {
       compute_reduced_costs(false);
-      return finish(SolveStatus::kTimeLimit,
-                    fmt::format("time limit {:g}s reached", time_limit), iterations, elapsed);
+      return finish(stop_status,
+                    stop_status == SolveStatus::kTimeLimit
+                        ? fmt::format("time limit {:g}s reached", time_limit)
+                        : "interrupted",
+                    iterations, timer.elapsed_seconds());
     }
   }
 }
