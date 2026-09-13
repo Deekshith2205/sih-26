@@ -447,7 +447,7 @@ std::optional<Solution> Simplex::dual_loop(Timer& timer, Count* iterations_io) {
     return true;
   };
 
-  StopController stop(model_, timer, time_limit_);
+  StopController stop(control_, timer, time_limit_);
 
   for (;;) {
     iterations_seen_ = iterations;

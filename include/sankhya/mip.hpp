@@ -17,7 +17,9 @@ namespace sankhya::mip {
 /// conflate: kOptimal means the search CLOSED - the incumbent is proven best - while
 /// kFeasible means an incumbent exists but a limit stopped the proof, and dual_bound then
 /// carries the best bound still open.
+class SolveControl;
+
 [[nodiscard]] Solution solve_branch_and_bound(const Model& model, const Options& options,
-                                              Logger& logger);
+                                              Logger& logger, SolveControl* control = nullptr);
 
 }  // namespace sankhya::mip

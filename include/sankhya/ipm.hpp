@@ -13,7 +13,9 @@ namespace sankhya::ipm {
 /// elsewhere. NO BASIS IS PRODUCED: the returned Solution carries primal values, row duals
 /// and reduced costs to the tolerance the method converged to, and empty statuses. The
 /// simplex remains the node engine for branch and bound for that reason.
-[[nodiscard]] Solution solve_ipm(const Model& model, const Options& options, Logger& logger);
+class SolveControl;
+
+[[nodiscard]] Solution solve_ipm(const Model& model, const Options& options, Logger& logger, SolveControl* control = nullptr);
 
 /// A starting point handed in from outside: a primal point, its row duals and its reduced
 /// costs, in the ORIGINAL model's units and sign convention (the ones a Solution carries).
@@ -32,6 +34,6 @@ struct WarmStart {
 /// it, the solve is declined with status kNotSolved and the reason in the message, before
 /// anything expensive is built.
 [[nodiscard]] Solution solve_ipm(const Model& model, const Options& options, Logger& logger,
-                                 const WarmStart* warm);
+                                 SolveControl* control = nullptr, const WarmStart* warm = nullptr);
 
 }  // namespace sankhya::ipm

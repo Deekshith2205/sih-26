@@ -17,7 +17,9 @@ namespace sankhya::qp {
 /// A non-convex Hessian is REFUSED (kModelError), never solved to whatever local point the
 /// iteration happens to reach. Convexity is decided before any arithmetic starts; see
 /// src/qp/convexity.hpp.
+class SolveControl;
+
 [[nodiscard]] Solution solve_convex_qp(const Model& model, const Options& options,
-                                       Logger& logger);
+                                       Logger& logger, SolveControl* control = nullptr);
 
 }  // namespace sankhya::qp

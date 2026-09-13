@@ -82,64 +82,14 @@ enum class SolveStatus : std::uint8_t {
   kInterrupted
 };
 
-/// Does a solve ending in this state hand back a point?
-///
-/// The question a writer, a checker and a caller all have to answer, asked once here so they
-/// cannot answer it differently (#200). Getting it wrong in the permissive direction is what
-/// #191 was: an `infeasible` answer was written as a full all-zero point, and the project's
-/// own independent checker read that point, found it violated the rows, and printed REJECTED
-/// at a correct answer. That was fixed for `infeasible` alone, and every other verdict with
-/// nothing to show kept the bug.
-///
-/// `kUnbounded` says yes deliberately. Since #191 it carries the feasible point its ray
-/// starts from, because a ray that begins outside the feasible region proves nothing, and a
-/// checker needs both halves.
-///
-/// The limit states say yes because they normally stop with an iterate or an incumbent in
-/// hand. The one exception is a node limit reached before branch and bound found any integer
-/// point, which reports no objective and infinite gaps rather than a point (see
-/// `src/mip/branch_and_bound.cpp`); that case predates this predicate and is unchanged by it.
-[[nodiscard]] constexpr bool claims_a_point(const Solution& solution) noexcept {
-  if (solution.status == SolveStatus::kInterrupted) return solution.has_point;
-  switch (solution.status) {
-    case SolveStatus::kOptimal:
-    case SolveStatus::kFeasible:
-    case SolveStatus::kUnbounded:
-    case SolveStatus::kIterationLimit:
-    case SolveStatus::kTimeLimit:
-    case SolveStatus::kNodeLimit: return true;
-    case SolveStatus::kNotSolved:
-    case SolveStatus::kInfeasible:
-    case SolveStatus::kInfeasibleOrUnbounded:
-    case SolveStatus::kNumericalError:
-    case SolveStatus::kModelError:
-    case SolveStatus::kInterrupted: return false;
-  }
-  return false;
-}
+// =========================================================================================
+
+#include "sankhya/solve_control.hpp"
 
 /// Human-readable name for a status, for logs and the JSON result blob.
 [[nodiscard]] const char* to_string(SolveStatus status) noexcept;
 [[nodiscard]] const char* to_string(BasisStatus status) noexcept;
 [[nodiscard]] const char* to_string(VarType type) noexcept;
-
-// =========================================================================================
-// Progress
-// =========================================================================================
-
-struct Progress {
-  enum class Phase : std::uint8_t { kPresolve, kLp, kTree };
-  Phase phase;
-  Count iterations = 0;
-  Count nodes = 0;
-  double objective = kInfinity;
-  double best_bound = -kInfinity;
-  double gap = kInfinity;
-  double elapsed_seconds = 0.0;
-  Count open_nodes = 0;
-};
-
-using ProgressCallback = std::function<int(const Progress&)>;
 
 // =========================================================================================
 // Model
@@ -245,13 +195,6 @@ class Model {
   /// handing a model to an engine: a malformed model produces a plausible-looking wrong
   /// answer rather than a crash, which is exactly the failure mode CLAUDE.md warns about.
   [[nodiscard]] std::string validate() const;
-
-  // ---- Progress and Interruption ------------------------------------------------------
-
-  ProgressCallback progress_callback;
-  mutable std::atomic<bool> interrupt_requested{false};
-
-  void interrupt() const noexcept { interrupt_requested.store(true, std::memory_order_relaxed); }
 };
 
 // =========================================================================================
@@ -298,6 +241,10 @@ class Solution {
   // rather than slipped in: every existing consumer ignores them, and both default to empty,
   // which is this class's established way of saying "the engine produced nothing of that
   // kind". See include/sankhya/certificate.hpp for what they mean and how they are checked.
+
+  /// Is there an explicit point structure here?
+  /// A valid point has all columns and row activities populated and semantically valid.
+  bool has_point = false;
 
   /// Farkas multipliers, one per row, when `status` is kInfeasible and the engine could
   /// prove it. Aggregating the rows with these weights yields an inequality no point in the
@@ -421,6 +368,43 @@ class Solution {
   void recompute_quality(const Model& model);
 };
 
+/// Does a solve ending in this state hand back a point?
+///
+/// The question a writer, a checker and a caller all have to answer, asked once here so they
+/// cannot answer it differently (#200). Getting it wrong in the permissive direction is what
+/// #191 was: an `infeasible` answer was written as a full all-zero point, and the project's
+/// own independent checker read that point, found it violated the rows, and printed REJECTED
+/// at a correct answer. That was fixed for `infeasible` alone, and every other verdict with
+/// nothing to show kept the bug.
+///
+/// `kUnbounded` says yes deliberately. Since #191 it carries the feasible point its ray
+/// starts from, because a ray that begins outside the feasible region proves nothing, and a
+/// checker needs both halves.
+///
+/// The limit states say yes because they normally stop with an iterate or an incumbent in
+/// hand. The one exception is a node limit reached before branch and bound found any integer
+/// point, which reports no objective and infinite gaps rather than a point (see
+/// `src/mip/branch_and_bound.cpp`); that case predates this predicate and is unchanged by it.
+///
+/// When interrupted, a point is only present if the solver was actively holding one.
+[[nodiscard]] constexpr bool claims_a_point(const Solution& solution) noexcept {
+  if (solution.status == SolveStatus::kInterrupted) return solution.has_point;
+  switch (solution.status) {
+    case SolveStatus::kOptimal:
+    case SolveStatus::kFeasible:
+    case SolveStatus::kUnbounded:
+    case SolveStatus::kIterationLimit:
+    case SolveStatus::kTimeLimit:
+    case SolveStatus::kNodeLimit:
+    case SolveStatus::kNumericalError: return true;
+    case SolveStatus::kNotSolved:
+    case SolveStatus::kInfeasible:
+    case SolveStatus::kInfeasibleOrUnbounded:
+    case SolveStatus::kModelError: return false;
+    default: return false;
+  }
+}
+
 // =========================================================================================
 // The single entry point
 // =========================================================================================
@@ -430,6 +414,7 @@ class Solution {
 /// This is the seam. The dispatcher picks an engine from the model class (LP / MILP / QP /
 /// MIQP) and the "algorithm" option, and future engines are added here and nowhere else.
 /// It never throws: every failure, including a malformed model, comes back as a status.
-[[nodiscard]] Solution solve(const Model& model, const Options& options);
+[[nodiscard]] Solution solve(const Model& model, const Options& options,
+                             SolveControl* control = nullptr);
 
 }  // namespace sankhya

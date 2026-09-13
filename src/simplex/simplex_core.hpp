@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 
+#include "sankhya/solve_control.hpp"
 #include "sankhya/timer.hpp"
 #include "sankhya/tolerances.hpp"
 
@@ -182,8 +183,8 @@ enum class Engine { kPrimal, kDual };
 
 class Simplex {
  public:
-  Simplex(const Model& model, const Options& options, Logger& logger)
-      : model_(model), options_(options), logger_(logger) {}
+  Simplex(const Model& model, const Options& options, Logger& logger, SolveControl* control)
+      : model_(model), options_(options), logger_(logger), control_(control) {}
 
   /// The primal simplex, from the slack basis or from `warm`.
   Solution run(const WarmStart* warm = nullptr);
@@ -350,6 +351,7 @@ class Simplex {
   const Model& model_;
   const Options& options_;
   Logger& logger_;
+  SolveControl* control_;
 
   Index n_ = 0;
   Index m_ = 0;
@@ -533,8 +535,8 @@ class Simplex {
 /// The scaled solve with its unscaled retry, for either engine. Defined in
 /// primal_simplex.cpp, where the portfolio logic and its evidence live.
 [[nodiscard]] Solution solve_with_scaling(const Model& model, const Options& options,
-                                          Logger& logger, const NodeScaling& cache,
-                                          Engine engine, const WarmStart* warm);
+                                          Logger& logger, const NodeScaling& cache, Engine engine,
+                                          const WarmStart* warm, SolveControl* control = nullptr);
 
 /// One row's candidate breakpoint, gathered in pass one of the Harris test and re-examined
 /// in pass two.

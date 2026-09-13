@@ -23,6 +23,7 @@
 #include "sankhya/logging.hpp"
 #include "sankhya/model.hpp"
 #include "sankhya/options.hpp"
+#include "sankhya/solve_control.hpp"
 #include "sankhya/version.hpp"
 
 namespace {
@@ -258,11 +259,12 @@ int main(int argc, char** argv) {
     g_cli_interrupt = 0;
     std::signal(SIGINT, handle_sigint);
 
-    model.progress_callback = [](const sankhya::Progress&) {
+    sankhya::SolveControl control;
+    control.progress_callback = [](const sankhya::Progress&) {
       return g_cli_interrupt ? 1 : 0;
     };
 
-    const sankhya::Solution solution = sankhya::solve(model, options);
+    const sankhya::Solution solution = sankhya::solve(model, options, &control);
 
     std::signal(SIGINT, SIG_DFL);
 

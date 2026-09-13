@@ -26,6 +26,8 @@
 #include "sankhya/io.hpp"
 #include "sankhya/model.hpp"
 #include "sankhya/options.hpp"
+#include "sankhya/solve_control.hpp"
+#include "sankhya/status.hpp"
 #include "sankhya/version.hpp"
 
 namespace {
@@ -107,6 +109,10 @@ struct sankhya_model {
   // (row, col) -> value, pending until the matrix is materialised.
   std::map<std::pair<int, int>, double> entries;
   std::map<std::pair<int, int>, double> quadratic;
+
+  std::shared_ptr<sankhya::SolveControl> control;
+
+  sankhya_model() : control(std::make_shared<sankhya::SolveControl>()) {}
 };
 
 struct sankhya_options {
@@ -361,11 +367,11 @@ sankhya_status sankhya_set_callback(sankhya_model* model,
 
   return guarded([&]() -> sankhya_status {
     if (!callback) {
-      model->model.progress_callback = nullptr;
+      model->control->progress_callback = nullptr;
       return ok();
     }
 
-    model->model.progress_callback = [callback, user_data](const sankhya::Progress& cpp_prog) -> int {
+    model->control->progress_callback = [callback, user_data](const sankhya::Progress& cpp_prog) -> int {
       sankhya_progress c_prog;
       switch (cpp_prog.phase) {
         case sankhya::Progress::Phase::kPresolve: c_prog.phase = SANKHYA_PHASE_PRESOLVE; break;
@@ -388,7 +394,7 @@ sankhya_status sankhya_set_callback(sankhya_model* model,
 
 sankhya_status sankhya_model_interrupt(sankhya_model* model) {
   if (model == nullptr) return fail(SANKHYA_ERROR_ARGUMENT, "model is null");
-  model->model.interrupt();
+  model->control->interrupt();
   return ok();
 }
 
@@ -472,7 +478,9 @@ sankhya_status sankhya_solve(const sankhya_model* model, const sankhya_options* 
     if (options != nullptr) effective = options->options;
 
     auto* result = new sankhya_solution();
-    result->solution = sankhya::solve(built, effective);
+    // Clear interrupt flag before a new solve starts
+    model->control->interrupt_requested.store(false, std::memory_order_relaxed);
+    result->solution = sankhya::solve(built, effective, model->control.get());
     *solution = result;
     return ok();
   });

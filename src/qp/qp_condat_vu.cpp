@@ -40,6 +40,7 @@
 // of the project's evidence rests on.
 
 #include "sankhya/qp.hpp"
+#include "sankhya/solve_control.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -159,7 +160,7 @@ void hessian_multiply(const Model& model, const std::vector<double>& x,
 
 }  // namespace
 
-Solution solve_convex_qp(const Model& model, const Options& options, Logger& logger) {
+Solution solve_convex_qp(const Model& model, const Options& options, Logger& logger, SolveControl* control) {
   Timer timer;
   Solution solution;
   solution.allocate_for(model);
@@ -226,7 +227,7 @@ Solution solve_convex_qp(const Model& model, const Options& options, Logger& log
   std::string message;
   SolveStatus status = SolveStatus::kIterationLimit;
 
-  StopController stop(model, timer, time_limit);
+  StopController stop(control, timer, time_limit);
   SolveStatus stop_status;
 
   while (true) {

@@ -25,6 +25,7 @@
 
 #include "sankhya/mip.hpp"
 #include "sankhya/qp.hpp"
+#include "sankhya/solve_control.hpp"
 
 #include "cuts.hpp"
 
@@ -93,8 +94,8 @@ double fractionality(double value) {
 
 class BranchAndBound {
  public:
-  BranchAndBound(const Model& model, const Options& options, Logger& logger)
-      : original_(model), working_(model), options_(options), logger_(logger) {
+  BranchAndBound(const Model& model, const Options& options, Logger& logger, SolveControl* control)
+      : original_(model), working_(model), options_(options), logger_(logger), control_(control) {
     integrality_tolerance_ = options.get_double("integrality_tolerance");
     relative_gap_target_ = options.get_double("mip_relative_gap");
     absolute_gap_target_ = options.get_double("mip_absolute_gap");
@@ -299,6 +300,7 @@ class BranchAndBound {
   Model working_;
   const Options& options_;
   Logger& logger_;
+  SolveControl* control_;
   Options node_options_;
 
   double integrality_tolerance_ = tol::kIntegrality;
@@ -842,7 +844,7 @@ Solution BranchAndBound::run() {
   bool gap_target_met = false;
   double open_bound = -std::numeric_limits<double>::infinity();
 
-  StopController stop(model_, timer_, time_limit_);
+  StopController stop(control_, timer_, time_limit_);
   SolveStatus stop_status;
 
   while (!open_.empty()) {
@@ -1246,7 +1248,7 @@ Solution BranchAndBound::run() {
 
 }  // namespace
 
-Solution solve_branch_and_bound(const Model& model, const Options& options, Logger& logger) {
+Solution solve_branch_and_bound(const Model& model, const Options& options, Logger& logger, SolveControl* control) {
   // ROOT CUTS, applied once before the search rather than per node.
   //
   // Integer rounding tightens a row IN PLACE, so unlike a generated cut it adds no row, grows
