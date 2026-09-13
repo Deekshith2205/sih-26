@@ -8,16 +8,17 @@
 // says optimal, the point is integral and feasible, the bound matches the objective. Only a
 // second, independent search over the same instance catches it.
 
+#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <random>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
-#include "sankhya/logging.hpp"
 #include "sankhya/model.hpp"
 #include "sankhya/options.hpp"
 #include "sankhya/solve_control.hpp"
@@ -219,25 +220,81 @@ TEST(BranchAndBound, ZeroOneKnapsack) {
 }
 
 TEST(BranchAndBound, RespectsSolveControlInterruptionWithCallback) {
+  // Use a fractional root relaxation (capacity 10 instead of 9) so the solver
+  // genuinely has to branch, ensuring it cannot trivially finish before the next poll.
   const Model model =
-      make_milp({{5.0, 4.0, 3.0, 2.0}}, {-kInfinity}, {9.0}, {-10.0, -7.0, -4.0, -3.0},
+      make_milp({{5.0, 4.0, 3.0, 2.0}}, {-kInfinity}, {10.0}, {-10.0, -7.0, -4.0, -3.0},
                 {1.0, 1.0, 1.0, 1.0}, {true, true, true, true});
 
   sankhya::SolveControl control;
   int callback_count = 0;
   control.progress_callback = [&](const sankhya::Progress&) {
-    if (++callback_count == 5) {
+    if (++callback_count == 1) {
+      // Sleep to guarantee the 0.1s throttle expires before the next iteration/node.
+      std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    }
+    if (callback_count == 2) {
+      // Return nonzero to interrupt on the 2nd callback.
       return 1;
     }
     return 0;
   };
 
-  Logger quiet(stdout, LogLevel::kOff);
-  const Solution s = mip::solve_branch_and_bound(model, mip_options(), quiet, &control);
+  const Solution s = solve(model, mip_options(), &control);
   EXPECT_EQ(s.status, SolveStatus::kInterrupted);
   EXPECT_TRUE(claims_a_point(s));
+  EXPECT_EQ(callback_count, 2);
   EXPECT_GT(s.nodes, 0);
   EXPECT_LE(s.nodes, 100);  // node count is bounded
+}
+
+TEST(BranchAndBound, ThrottlesProgressCallbackAcrossNodes) {
+  // A mathematically hard knapsack instance (Chvátal / Jeroslow style).
+  // Why this forces a massive tree for this specific solver:
+  // 1. All weights are exactly 2, and capacity is an odd number (17). The LP relaxation
+  //    always leaves exactly one item fractional (at 0.5) to fill the capacity perfectly.
+  // 2. Profits are almost identical (2.0 + infinitesimal perturbation). The LP bound is
+  //    exactly 1.0 better than the true integer optimum (the gap is half an item).
+  // 3. Branching on any variable replaces it with the next-best item, degrading the LP
+  //    bound by only the perturbation (~0.0005). Thus, `can_prune()` cannot fathom any
+  //    node by bound.
+  // 4. The tree must branch until either 9 items are forced to 1 (infeasible) or 9 items
+  //    are forced to 0 (the remaining items cannot beat the incumbent).
+  // For n=17, the corresponding full search tree contains 97,239 nodes.
+  // The test only requires the solver to visit >1,000 of them. It is deterministic.
+  const std::size_t n = 17;
+  std::vector<double> obj(n);
+  std::vector<double> weights(n, 2.0);
+  std::vector<double> upper(n, 1.0);
+  std::vector<bool> is_int(n, true);
+  const double capacity = 17.0;
+
+  for (std::size_t i = 0; i < n; ++i) {
+    // Perturb profits strictly decreasingly so the LP choice is deterministic.
+    // Minimising -profit maximizes profit.
+    obj[i] = -(2.0 + (static_cast<double>(n - i) * 0.001));
+  }
+
+  const Model model = make_milp({weights}, {-kInfinity}, {capacity}, obj, upper, is_int);
+
+  sankhya::SolveControl control;
+  int callback_count = 0;
+  control.progress_callback = [&](const sankhya::Progress&) {
+    ++callback_count;
+    return 0;
+  };
+
+  Options options = mip_options();
+  options.set_int("node_limit", 1000000);  // safety cap; instance solves well under this
+
+  const auto start_time = std::chrono::steady_clock::now();
+  const Solution s = solve(model, options, &control);
+  const auto end_time = std::chrono::steady_clock::now();
+  const double elapsed = std::chrono::duration<double>(end_time - start_time).count();
+
+  EXPECT_EQ(s.status, SolveStatus::kOptimal);
+  EXPECT_GT(s.nodes, 1000);
+  EXPECT_LE(callback_count, (elapsed / 0.1) + 2.0);
 }
 
 TEST(BranchAndBound, TheRelaxationIsNotTheAnswer) {

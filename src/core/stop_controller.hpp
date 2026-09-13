@@ -4,6 +4,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 
 #include "sankhya/model.hpp"
 #include "sankhya/solve_control.hpp"
@@ -37,9 +38,11 @@ class StopController {
     }
 
     if (control_ && control_->progress_callback) {
-      if (!first_callback_invoked_ || elapsed - last_callback_ >= 0.1) {
-        first_callback_invoked_ = true;
-        last_callback_ = elapsed;
+      auto now = std::chrono::steady_clock::now();
+      if (!control_->first_callback_invoked ||
+          std::chrono::duration<double>(now - control_->last_callback_time).count() >= 0.1) {
+        control_->first_callback_invoked = true;
+        control_->last_callback_time = now;
         Progress p = get_progress();
         p.elapsed_seconds = elapsed;
         if (control_->progress_callback(p) != 0) {
@@ -61,8 +64,6 @@ class StopController {
   SolveControl* control_;
   const Timer& timer_;
   double time_limit_;
-  bool first_callback_invoked_ = false;
-  double last_callback_ = 0.0;
 };
 
 }  // namespace sankhya

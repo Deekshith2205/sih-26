@@ -852,6 +852,7 @@ Solution BranchAndBound::run() {
 
   StopController stop(control_, timer_, time_limit_);
   SolveStatus stop_status;
+  Solution best_available_point;
 
   while (!open_.empty()) {
     if (nodes_explored_ >= node_limit_) {
@@ -999,6 +1000,14 @@ Solution BranchAndBound::run() {
           "infeasible";
       return solution;
     }
+    if (relaxation.status == SolveStatus::kInterrupted ||
+        relaxation.status == SolveStatus::kTimeLimit) {
+      leave();
+      limit_hit = true;
+      solution.status = relaxation.status;
+      best_available_point = std::move(relaxation);
+      break;
+    }
     if (relaxation.status != SolveStatus::kOptimal) {
       // A node whose LP did not solve cannot be fathomed honestly: pruning it could discard
       // the optimum. Stop and report rather than quietly continuing on a broken bound.
@@ -1008,6 +1017,8 @@ Solution BranchAndBound::run() {
                                      to_string(relaxation.status), nodes_explored_);
       return solution;
     }
+
+    best_available_point = relaxation;
 
     if (node_index == 0 && options_.get_bool("enable_root_cuts")) {
       const Index original_root_rows = working_.num_rows();
@@ -1205,23 +1216,39 @@ Solution BranchAndBound::run() {
   }
 
   if (!have_incumbent_) {
-    solution.status = limit_hit ? SolveStatus::kNodeLimit : SolveStatus::kInfeasible;
     if (!limit_hit) {
+      solution.status = SolveStatus::kInfeasible;
       solution.message = fmt::format(
           "the search closed with no integer feasible point after {} nodes", nodes_explored_);
     }
 
-    // NO POINT WAS FOUND, so there is no objective to report. Leaving these at their
-    // defaults said objective 0, bound 0, gap 0 - and a gap of zero means CLOSED, which is
-    // the exact opposite of what happened. MIPLIB found this: enlight8, enlight_hard,
-    // timtab1 and neos-1425699 all came back `node_limit` with `gap 0.00e+00` beside them.
-    //
-    // The worst representable objective is the honest stand-in for "nothing found": no
-    // feasible point means no bound on the incumbent side at all. The gaps are infinite for
-    // the same reason - unknown, not closed.
     const double nothing_found =
         original_.sense == ObjSense::kMaximize ? -kInfinity : kInfinity;
-    solution.objective = nothing_found;
+
+    if (limit_hit && claims_a_point(solution.status) &&
+        !best_available_point.col_value.empty()) {
+      solution.col_value = std::move(best_available_point.col_value);
+      solution.row_activity = std::move(best_available_point.row_activity);
+      solution.row_dual = std::move(best_available_point.row_dual);
+      solution.col_dual = std::move(best_available_point.col_dual);
+      solution.objective = best_available_point.objective;
+      solution.primal_infeasibility = best_available_point.primal_infeasibility;
+      solution.primal_infeasibility_scaled = best_available_point.primal_infeasibility_scaled;
+      solution.dual_infeasibility = best_available_point.dual_infeasibility;
+      solution.dual_infeasibility_scaled = best_available_point.dual_infeasibility_scaled;
+      solution.integrality_violation = best_available_point.integrality_violation;
+      solution.iterations = best_available_point.iterations;
+    } else {
+      // NO POINT WAS FOUND, so there is no objective to report. Leaving these at their
+      // defaults said objective 0, bound 0, gap 0 - and a gap of zero means CLOSED, which is
+      // the exact opposite of what happened. MIPLIB found this: enlight8, enlight_hard,
+      // timtab1 and neos-1425699 all came back `node_limit` with `gap 0.00e+00` beside them.
+      //
+      // The worst representable objective is the honest stand-in for "nothing found": no
+      // feasible point means no bound on the incumbent side at all. The gaps are infinite for
+      // the same reason - unknown, not closed.
+      solution.objective = nothing_found;
+    }
     // The BOUND is different, and is real information worth keeping: when a limit stopped
     // the search, the open nodes still prove the optimum is no better than final_bound. Only
     // a search that closed with nothing has no bound to offer either.

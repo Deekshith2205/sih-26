@@ -250,6 +250,13 @@ void reconcile_status_with_measurement(Solution* solution, const Options& option
   // kFeasible is available. The engine stopped believing it had converged, so this is a
   // numerical failure and is reported as one, with the number that contradicts it.
   //
+  // The engine stopped before reaching a conclusion, so the point it returns is an
+  // interim one. It is not expected to be feasible, so do not downgrade the status
+  // if it is not. Only claims of optimality or feasibility are subject to measurement.
+  if (solution->status != SolveStatus::kOptimal && solution->status != SolveStatus::kFeasible) {
+    return;
+  }
+
   // THE TEST IS ON THE SCALED VIOLATION, and the absolute one is still what gets printed.
   // An absolute tolerance asks a badly scaled model for accuracy it cannot have: on Netlib
   // grow7, whose largest solution value is 4.8e+07, 1e-7 absolute is 2.1e-15 relative, which
@@ -277,17 +284,9 @@ void reconcile_status_with_measurement(Solution* solution, const Options& option
         "engine reported {} but an integer column is fractional by {:.3e}, above the {:.1e} "
         "tolerance; this is a relaxation, not an integer solution",
         to_string(solution->status), solution->integrality_violation, integrality_tolerance);
-    if (solution->status == SolveStatus::kInterrupted) {
-      solution->clear_values();
-      solution->message =
-          solution->message.empty() ? detail : solution->message + "; " + detail;
-      logger.warning("{}", detail);
-    } else {
-      solution->status = SolveStatus::kNumericalError;
-      solution->message =
-          solution->message.empty() ? detail : solution->message + "; " + detail;
-      logger.warning("{}", detail);
-    }
+    solution->status = SolveStatus::kNumericalError;
+    solution->message = solution->message.empty() ? detail : solution->message + "; " + detail;
+    logger.warning("{}", detail);
     return;
   }
 

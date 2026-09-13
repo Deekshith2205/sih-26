@@ -2,6 +2,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 
@@ -50,7 +51,14 @@ class SolveControl {
   }
 
   /// Reset the interruption flag. Call before starting a new solve.
-  void reset() noexcept { interrupt_requested_.store(false, std::memory_order_relaxed); }
+  void reset() noexcept {
+    interrupt_requested_.store(false, std::memory_order_relaxed);
+    first_callback_invoked = false;
+  }
+
+  /// Shared throttle state so nested engines don't all fire simultaneously
+  bool first_callback_invoked = false;
+  std::chrono::steady_clock::time_point last_callback_time;
 
  private:
   std::atomic<bool> interrupt_requested_{false};

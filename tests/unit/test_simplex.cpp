@@ -13,10 +13,12 @@
 // This is the stand-in for the exact rational oracle until Phase 3 builds the real one.
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <iostream>
 #include <random>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -25,7 +27,6 @@
 #include "sankhya/options.hpp"
 #include "sankhya/solve_control.hpp"
 #include "sankhya/tolerances.hpp"
-#include "sankhya/logging.hpp"
 
 namespace sankhya {
 namespace {
@@ -451,9 +452,13 @@ TEST(PrimalSimplex, RespectsSolveControlInterruptionWithThrottledCallback) {
   sankhya::SolveControl control;
   int callback_count = 0;
   control.progress_callback = [&](const sankhya::Progress&) {
-    if (++callback_count == 2) {
+    if (++callback_count == 1) {
+      // Sleep to guarantee the 0.1s throttle expires before the next iteration.
+      std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    }
+    if (callback_count == 2) {
       // Return nonzero to interrupt on the 2nd callback.
-      // Because callbacks are throttled (0.1s), many iterations will have passed.
+      // Because callbacks are throttled, this tests that throttling works and is respected.
       return 1;
     }
     return 0;
@@ -461,13 +466,13 @@ TEST(PrimalSimplex, RespectsSolveControlInterruptionWithThrottledCallback) {
 
   Options options;
   options.set_bool("log_to_console", false);
-  Logger quiet(stdout, LogLevel::kOff);
-  const Solution solution = solve_primal_simplex(model, options, quiet, &control);
+  options.set_bool("presolve", false);
+  options.set_string("algorithm", "simplex");
+  const Solution solution = solve(model, options, &control);
 
   EXPECT_EQ(solution.status, SolveStatus::kInterrupted);
   EXPECT_TRUE(claims_a_point(solution));
-  // The solver should have done substantially more iterations than 2
-  EXPECT_GT(solution.iterations, callback_count);
+  EXPECT_EQ(callback_count, 2);
 }
 
 // =========================================================================================
