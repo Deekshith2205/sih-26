@@ -763,6 +763,11 @@ def verify(model: Model, solution: Solution, primal_tol: float, dual_tol: float,
     # ---- Structure ----------------------------------------------------------------------
     missing_cols = [n for n in model.col_names if n not in solution.col_value]
     missing_rows = [n for n in model.row_names if n not in solution.row_activity]
+
+    if solution.status in ("interrupted", "not_solved", "model_error") and not solution.col_value and not solution.row_activity:
+        report.note("structure", f"skipped: status is {solution.status} and no point was claimed")
+        return report
+
     report.check(
         not missing_cols and not missing_rows,
         "structure",

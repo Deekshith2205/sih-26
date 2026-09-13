@@ -9,7 +9,9 @@
 // bench/ branch on it, and a script that has to grep stdout to find out whether the solve
 // succeeded will eventually mis-parse and quietly record a wrong result.
 
+#include <atomic>
 #include <cmath>
+#include <csignal>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -24,6 +26,12 @@
 #include "sankhya/version.hpp"
 
 namespace {
+
+volatile std::sig_atomic_t g_cli_interrupt = 0;
+
+extern "C" void handle_sigint(int) {
+  g_cli_interrupt = 1;
+}
 
 /// Apply repeated --option name=value pairs. Returns false after printing the first error.
 bool apply_options(const std::vector<std::string>& assignments, sankhya::Options* options) {
@@ -247,7 +255,16 @@ int main(int argc, char** argv) {
     if (!load_model(model_path, options, &model)) return 3;
     if (!progress_out_path.empty()) options.set_string("progress_out", progress_out_path);
 
+    g_cli_interrupt = 0;
+    std::signal(SIGINT, handle_sigint);
+
+    model.progress_callback = [](const sankhya::Progress&) {
+      return g_cli_interrupt ? 1 : 0;
+    };
+
     const sankhya::Solution solution = sankhya::solve(model, options);
+
+    std::signal(SIGINT, SIG_DFL);
 
     fmt::print("\n{:<22}{}\n", "status", sankhya::to_string(solution.status));
     if (solution.has_primal_values()) {
