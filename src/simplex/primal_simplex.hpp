@@ -12,8 +12,6 @@
 
 namespace sankhya {
 
-class SolveControl;
-
 /// Solve a continuous LP with the revised primal simplex. Integrality is IGNORED: this is
 /// the node solver branch-and-cut will call in Phase 5, and it is the caller's job to know
 /// whether it wanted a relaxation. solve() in src/core refuses a MILP for exactly this

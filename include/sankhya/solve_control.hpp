@@ -9,9 +9,12 @@ namespace sankhya {
 
 /// Live metrics reported during a solve.
 ///
-/// `phase`: 0 = presolve, 1 = LP relaxation (or PDHG/IPM), 2 = tree search
+/// Reported approximately every 100ms to the progress callback. The `phase` field
+/// identifies which part of the solve is running.
 struct Progress {
-  int phase = 0;
+  enum class Phase : std::uint8_t { kPresolve, kLp, kTree };
+
+  Phase phase = Phase::kLp;
   int64_t iterations = 0;
   int64_t nodes = 0;
   double objective = 0.0;
@@ -46,6 +49,11 @@ class SolveControl {
   /// Has an interruption been requested?
   [[nodiscard]] bool interruption_requested() const noexcept {
     return interrupt_requested_.load(std::memory_order_relaxed);
+  }
+
+  /// Reset the interruption flag. Call before starting a new solve.
+  void reset() noexcept {
+    interrupt_requested_.store(false, std::memory_order_relaxed);
   }
 
  private:

@@ -18,6 +18,7 @@
 
 #include <exception>
 #include <map>
+#include <mutex>
 #include <new>
 #include <string>
 #include <utility>
@@ -27,7 +28,6 @@
 #include "sankhya/model.hpp"
 #include "sankhya/options.hpp"
 #include "sankhya/solve_control.hpp"
-#include "sankhya/status.hpp"
 #include "sankhya/version.hpp"
 
 namespace {
@@ -110,9 +110,11 @@ struct sankhya_model {
   std::map<std::pair<int, int>, double> entries;
   std::map<std::pair<int, int>, double> quadratic;
 
-  std::shared_ptr<sankhya::SolveControl> control;
+  std::mutex control_mutex;
+  std::shared_ptr<sankhya::SolveControl> active_control;
+  sankhya::ProgressCallback progress_callback;
 
-  sankhya_model() : control(std::make_shared<sankhya::SolveControl>()) {}
+  sankhya_model() = default;
 };
 
 struct sankhya_options {
@@ -367,16 +369,17 @@ sankhya_status sankhya_set_callback(sankhya_model* model,
 
   return guarded([&]() -> sankhya_status {
     if (!callback) {
-      model->control->progress_callback = nullptr;
+      std::lock_guard<std::mutex> lock(model->control_mutex);
+      model->progress_callback = nullptr;
       return ok();
     }
 
-    model->control->progress_callback = [callback, user_data](const sankhya::Progress& cpp_prog) -> int {
+    auto cpp_cb = [callback, user_data](const sankhya::Progress& cpp_prog) -> int {
       sankhya_progress c_prog;
       switch (cpp_prog.phase) {
         case sankhya::Progress::Phase::kPresolve: c_prog.phase = SANKHYA_PHASE_PRESOLVE; break;
-        case sankhya::Progress::Phase::kLp: c_prog.phase = SANKHYA_PHASE_LP; break;
-        case sankhya::Progress::Phase::kTree: c_prog.phase = SANKHYA_PHASE_TREE; break;
+        case sankhya::Progress::Phase::kLp:       c_prog.phase = SANKHYA_PHASE_LP;       break;
+        case sankhya::Progress::Phase::kTree:     c_prog.phase = SANKHYA_PHASE_TREE;     break;
       }
       c_prog.iterations = static_cast<int64_t>(cpp_prog.iterations);
       c_prog.nodes = static_cast<int64_t>(cpp_prog.nodes);
@@ -388,13 +391,23 @@ sankhya_status sankhya_set_callback(sankhya_model* model,
 
       return callback(&c_prog, user_data);
     };
+
+    std::lock_guard<std::mutex> lock(model->control_mutex);
+    model->progress_callback = std::move(cpp_cb);
     return ok();
   });
 }
 
 sankhya_status sankhya_model_interrupt(sankhya_model* model) {
   if (model == nullptr) return fail(SANKHYA_ERROR_ARGUMENT, "model is null");
-  model->control->interrupt();
+  std::shared_ptr<sankhya::SolveControl> control_copy;
+  {
+    std::lock_guard<std::mutex> lock(model->control_mutex);
+    control_copy = model->active_control;
+  }
+  if (control_copy) {
+    control_copy->interrupt();
+  }
   return ok();
 }
 
@@ -464,7 +477,7 @@ sankhya_status sankhya_options_set_string(sankhya_options* options, const char* 
 
 // ---- Solve ---------------------------------------------------------------------------------
 
-sankhya_status sankhya_solve(const sankhya_model* model, const sankhya_options* options,
+sankhya_status sankhya_solve(sankhya_model* model, const sankhya_options* options,
                              sankhya_solution** solution) {
   if (model == nullptr || solution == nullptr) {
     return fail(SANKHYA_ERROR_ARGUMENT, "model or solution pointer is null");
@@ -477,10 +490,23 @@ sankhya_status sankhya_solve(const sankhya_model* model, const sankhya_options* 
     sankhya::Options effective;
     if (options != nullptr) effective = options->options;
 
+    auto control = std::make_shared<sankhya::SolveControl>();
+    {
+      std::lock_guard<std::mutex> lock(model->control_mutex);
+      control->progress_callback = model->progress_callback;
+      model->active_control = control;
+    }
+
+    struct ControlClearer {
+      sankhya_model* m;
+      ~ControlClearer() {
+        std::lock_guard<std::mutex> lock(m->control_mutex);
+        m->active_control.reset();
+      }
+    } clearer{model};
+
     auto* result = new sankhya_solution();
-    // Clear interrupt flag before a new solve starts
-    model->control->interrupt_requested.store(false, std::memory_order_relaxed);
-    result->solution = sankhya::solve(built, effective, model->control.get());
+    result->solution = sankhya::solve(built, effective, control.get());
     *solution = result;
     return ok();
   });

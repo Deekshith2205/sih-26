@@ -959,6 +959,11 @@ Solution solve_ipm(const Model& model, const Options& options, Logger& logger, S
 }
 
 Solution solve_ipm(const Model& model, const Options& options, Logger& logger,
+                   const WarmStart* warm) {
+  return solve_scaled(model, options, logger, nullptr, warm);
+}
+
+Solution solve_ipm(const Model& model, const Options& options, Logger& logger,
                    SolveControl* control, const WarmStart* warm) {
   return solve_scaled(model, options, logger, control, warm);
 }

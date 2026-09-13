@@ -223,7 +223,7 @@ sankhya_status sankhya_options_set_string(sankhya_options* options, const char* 
  * succeeded, not what the solver concluded: a model proved infeasible returns SANKHYA_OK
  * with a solution whose status is SANKHYA_INFEASIBLE. Check both.
  */
-sankhya_status sankhya_solve(const sankhya_model* model, const sankhya_options* options,
+sankhya_status sankhya_solve(sankhya_model* model, const sankhya_options* options,
                              sankhya_solution** solution);
 
 void sankhya_solution_free(sankhya_solution* solution);

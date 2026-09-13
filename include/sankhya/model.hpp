@@ -28,12 +28,11 @@
 // the QPS convention, so a QPLIB/QPS reader maps onto it without a transformation.
 #pragma once
 
-#include <atomic>
-#include <functional>
 #include <string>
 #include <vector>
 
 #include "sankhya/options.hpp"
+#include "sankhya/solve_control.hpp"
 #include "sankhya/sparse.hpp"
 #include "sankhya/tolerances.hpp"
 #include "sankhya/types.hpp"
@@ -83,8 +82,6 @@ enum class SolveStatus : std::uint8_t {
 };
 
 // =========================================================================================
-
-#include "sankhya/solve_control.hpp"
 
 /// Human-readable name for a status, for logs and the JSON result blob.
 [[nodiscard]] const char* to_string(SolveStatus status) noexcept;
@@ -206,7 +203,6 @@ class Model {
 class Solution {
  public:
   SolveStatus status = SolveStatus::kNotSolved;
-  bool has_point = false;
 
   /// Objective value at col_value, in the sense of the original model. Meaningless unless
   /// status is kOptimal or kFeasible.
@@ -344,6 +340,7 @@ class Solution {
 
   /// Clear the vectors and quality measurements, leaving the status intact.
   void clear_values() {
+    has_point = false;
     col_value.clear();
     row_activity.clear();
     row_dual.clear();

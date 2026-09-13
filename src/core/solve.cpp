@@ -211,7 +211,7 @@ void polish_with_the_interior_point(Solution* first, const Model& model, const O
   logger.info("Polish: handing PDHG's point to the interior point, {} iterations at most",
               polish.get_int("iteration_limit"));
   const ipm::WarmStart warm{first->col_value, first->row_dual, first->col_dual};
-  Solution polished = ipm::solve_ipm(model, polish, logger, &warm);
+  Solution polished = ipm::solve_ipm(model, polish, logger, nullptr, &warm);
 
   const auto worst = [](const Solution& s) {
     return std::max(s.primal_infeasibility_scaled, s.dual_infeasibility_scaled);
