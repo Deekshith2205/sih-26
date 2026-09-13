@@ -58,6 +58,7 @@ sankhya_solve_status to_c_status(sankhya::SolveStatus status) {
     case sankhya::SolveStatus::kNodeLimit: return SANKHYA_NODE_LIMIT;
     case sankhya::SolveStatus::kNumericalError: return SANKHYA_NUMERICAL_ERROR;
     case sankhya::SolveStatus::kModelError: return SANKHYA_MODEL_ERROR;
+    case sankhya::SolveStatus::kInterrupted: return SANKHYA_INTERRUPTED;
   }
   return SANKHYA_NOT_SOLVED;
 }
@@ -351,7 +352,47 @@ sankhya_status sankhya_model_validate(const sankhya_model* model) {
   });
 }
 
-// ---- Options -------------------------------------------------------------------------------
+// ---- Progress and Interruption ----------------------------------------------------------
+
+sankhya_status sankhya_set_callback(sankhya_model* model,
+                                    int (*callback)(const sankhya_progress*, void*),
+                                    void* user_data) {
+  if (model == nullptr) return fail(SANKHYA_ERROR_ARGUMENT, "model is null");
+
+  return guarded([&]() -> sankhya_status {
+    if (!callback) {
+      model->model.progress_callback = nullptr;
+      return ok();
+    }
+
+    model->model.progress_callback = [callback, user_data](const sankhya::Progress& cpp_prog) -> int {
+      sankhya_progress c_prog;
+      switch (cpp_prog.phase) {
+        case sankhya::Progress::Phase::kPresolve: c_prog.phase = SANKHYA_PHASE_PRESOLVE; break;
+        case sankhya::Progress::Phase::kLp: c_prog.phase = SANKHYA_PHASE_LP; break;
+        case sankhya::Progress::Phase::kTree: c_prog.phase = SANKHYA_PHASE_TREE; break;
+      }
+      c_prog.iterations = static_cast<int64_t>(cpp_prog.iterations);
+      c_prog.nodes = static_cast<int64_t>(cpp_prog.nodes);
+      c_prog.objective = cpp_prog.objective;
+      c_prog.best_bound = cpp_prog.best_bound;
+      c_prog.gap = cpp_prog.gap;
+      c_prog.elapsed_seconds = cpp_prog.elapsed_seconds;
+      c_prog.open_nodes = static_cast<int64_t>(cpp_prog.open_nodes);
+
+      return callback(&c_prog, user_data);
+    };
+    return ok();
+  });
+}
+
+sankhya_status sankhya_model_interrupt(sankhya_model* model) {
+  if (model == nullptr) return fail(SANKHYA_ERROR_ARGUMENT, "model is null");
+  model->model.interrupt();
+  return ok();
+}
+
+// ---- Options ----------------------------------------------------------------------------
 
 sankhya_options* sankhya_options_create(void) {
   try {
@@ -377,7 +418,7 @@ sankhya_status sankhya_options_set_bool(sankhya_options* options, const char* na
   });
 }
 
-sankhya_status sankhya_options_set_int(sankhya_options* options, const char* name, long value) {
+sankhya_status sankhya_options_set_int(sankhya_options* options, const char* name, int64_t value) {
   if (options == nullptr || name == nullptr) {
     return fail(SANKHYA_ERROR_ARGUMENT, "options or name is null");
   }
@@ -457,12 +498,12 @@ double sankhya_solution_dual_bound(const sankhya_solution* solution) {
   return solution == nullptr ? 0.0 : solution->solution.dual_bound;
 }
 
-long sankhya_solution_iterations(const sankhya_solution* solution) {
-  return solution == nullptr ? 0 : static_cast<long>(solution->solution.iterations);
+int64_t sankhya_solution_iterations(const sankhya_solution* solution) {
+  return solution == nullptr ? 0 : static_cast<int64_t>(solution->solution.iterations);
 }
 
-long sankhya_solution_nodes(const sankhya_solution* solution) {
-  return solution == nullptr ? 0 : static_cast<long>(solution->solution.nodes);
+int64_t sankhya_solution_nodes(const sankhya_solution* solution) {
+  return solution == nullptr ? 0 : static_cast<int64_t>(solution->solution.nodes);
 }
 
 double sankhya_solution_seconds(const sankhya_solution* solution) {
