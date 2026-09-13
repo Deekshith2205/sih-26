@@ -264,8 +264,7 @@ void reconcile_status_with_measurement(Solution* solution, const Options& option
         to_string(solution->status), solution->primal_infeasibility,
         solution->primal_infeasibility_scaled, primal_tolerance);
     solution->status = SolveStatus::kNumericalError;
-    solution->message =
-        solution->message.empty() ? detail : solution->message + "; " + detail;
+    solution->message = solution->message.empty() ? detail : solution->message + "; " + detail;
     logger.warning("{}", detail);
     return;
   }

@@ -25,7 +25,7 @@
 #include "sankhya/options.hpp"
 #include "sankhya/solve_control.hpp"
 #include "sankhya/tolerances.hpp"
-#include "util/logger.hpp"
+#include "sankhya/logging.hpp"
 
 namespace sankhya {
 namespace {

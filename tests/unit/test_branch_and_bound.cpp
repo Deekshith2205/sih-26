@@ -17,11 +17,11 @@
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
+#include "sankhya/logging.hpp"
 #include "sankhya/model.hpp"
 #include "sankhya/options.hpp"
 #include "sankhya/solve_control.hpp"
 #include "sankhya/tolerances.hpp"
-#include "util/logger.hpp"
 
 #include "oracles/lp_generator.hpp"
 #include "oracles/rational_simplex.hpp"
@@ -237,7 +237,7 @@ TEST(BranchAndBound, RespectsSolveControlInterruptionWithCallback) {
   EXPECT_EQ(s.status, SolveStatus::kInterrupted);
   EXPECT_TRUE(claims_a_point(s));
   EXPECT_GT(s.nodes, 0);
-  EXPECT_LE(s.nodes, 100); // node count is bounded
+  EXPECT_LE(s.nodes, 100);  // node count is bounded
 }
 
 TEST(BranchAndBound, TheRelaxationIsNotTheAnswer) {
