@@ -21,7 +21,8 @@ class StopController {
       : control_(control), timer_(timer), time_limit_(time_limit) {}
 
   /// Check if the solver should stop.
-  /// `get_progress` is a callable returning `Progress`, evaluated only when the callback is due.
+  /// `get_progress` is a callable returning `Progress`, evaluated only when the callback is
+  /// due.
   template <typename F>
   bool should_stop(F&& get_progress, SolveStatus* out_status) {
     if (control_ && control_->interruption_requested()) {
@@ -36,12 +37,17 @@ class StopController {
     }
 
     if (control_ && control_->progress_callback) {
-      if (elapsed - last_callback_ >= 0.1) {
+      if (!first_callback_invoked_ || elapsed - last_callback_ >= 0.1) {
+        first_callback_invoked_ = true;
         last_callback_ = elapsed;
         Progress p = get_progress();
         p.elapsed_seconds = elapsed;
         if (control_->progress_callback(p) != 0) {
           control_->interrupt();
+          *out_status = SolveStatus::kInterrupted;
+          return true;
+        }
+        if (control_->interruption_requested()) {
           *out_status = SolveStatus::kInterrupted;
           return true;
         }
@@ -55,6 +61,7 @@ class StopController {
   SolveControl* control_;
   const Timer& timer_;
   double time_limit_;
+  bool first_callback_invoked_ = false;
   double last_callback_ = 0.0;
 };
 

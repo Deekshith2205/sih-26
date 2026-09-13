@@ -38,7 +38,7 @@
 
 #include "la/ldl.hpp"
 #include "la/scaling.hpp"
-#include "la/sparse_ldl.hpp"
+
 #include "sankhya/solve_control.hpp"
 #include "sankhya/timer.hpp"
 #include "sankhya/tolerances.hpp"
@@ -90,7 +90,11 @@ class InteriorPoint {
   InteriorPoint(const Model& model, const Options& options, Logger& logger,
                 SolveControl* control = nullptr, const WarmStart* warm = nullptr,
                 const Timer* clock = nullptr)
-      : model_(model), options_(options), logger_(logger), control_(control), warm_(warm),
+      : model_(model),
+        options_(options),
+        logger_(logger),
+        control_(control),
+        warm_(warm),
         clock_(clock) {}
 
   Solution run();
@@ -607,8 +611,8 @@ Solution InteriorPoint::finish(SolveStatus status, const std::string& message, C
   logger_.info("IPM: {} iterations, {} factorizations, {} regularized pivot(s) in total",
                iterations, factorizations_, regularized_pivots_);
   bool have_point = status == SolveStatus::kOptimal || status == SolveStatus::kFeasible ||
-                    status == SolveStatus::kIterationLimit || status == SolveStatus::kTimeLimit ||
-                    status == SolveStatus::kInterrupted;
+                    status == SolveStatus::kIterationLimit ||
+                    status == SolveStatus::kTimeLimit || status == SolveStatus::kInterrupted;
 
   // A LIMIT IS NOT A LICENCE TO REPORT NONSENSE (#194). Reaching the time limit means the
   // iterate in hand is the answer, and normally it is a real point. It is not one if the
@@ -694,8 +698,9 @@ Solution InteriorPoint::run() {
     const bool interrupted = control_ != nullptr && control_->interruption_requested();
     return finish(
         interrupted ? SolveStatus::kInterrupted : SolveStatus::kTimeLimit,
-        interrupted ? "interrupted before the first iteration"
-                    : fmt::format("time limit {:g}s reached before the first iteration", time_limit),
+        interrupted
+            ? "interrupted before the first iteration"
+            : fmt::format("time limit {:g}s reached before the first iteration", time_limit),
         0, timer.elapsed_seconds());
   }
   logger_.info("Interior point: {} rows, {} columns, {} nonzeros", m_, n_,
@@ -777,8 +782,7 @@ Solution InteriorPoint::run() {
       const bool interrupted = control_ != nullptr && control_->interruption_requested();
       return finish(
           interrupted ? SolveStatus::kInterrupted : SolveStatus::kTimeLimit,
-          interrupted ? "interrupted"
-                      : fmt::format("time limit {:g}s reached", time_limit),
+          interrupted ? "interrupted" : fmt::format("time limit {:g}s reached", time_limit),
           iterations, timer.elapsed_seconds());
     }
     if (!factorize()) {
@@ -881,8 +885,8 @@ Solution InteriorPoint::run() {
 /// Scaled solve: Ruiz + Pock-Chambolle equilibration, exactly as the simplex entry point
 /// applies it, then the point, the row duals and the reduced costs are mapped back:
 /// x = Dc xhat, y = Dr yhat, d = Dc^-1 dhat (la/scaling.hpp).
-Solution solve_scaled(const Model& model, const Options& options, Logger& logger, SolveControl* control,
-                      const WarmStart* warm) {
+Solution solve_scaled(const Model& model, const Options& options, Logger& logger,
+                      SolveControl* control, const WarmStart* warm) {
   // The clock the time limit runs on starts HERE. Scaling a 500,000-row model and copying
   // it are tens of seconds, and a polish's budget of 30 used to begin only after them.
   Timer clock;
@@ -954,7 +958,8 @@ Solution solve_scaled(const Model& model, const Options& options, Logger& logger
 
 }  // namespace
 
-Solution solve_ipm(const Model& model, const Options& options, Logger& logger, SolveControl* control) {
+Solution solve_ipm(const Model& model, const Options& options, Logger& logger,
+                   SolveControl* control) {
   return solve_scaled(model, options, logger, control, nullptr);
 }
 

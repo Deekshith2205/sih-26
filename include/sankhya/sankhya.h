@@ -64,6 +64,7 @@ typedef enum sankhya_solve_status {
   SANKHYA_NODE_LIMIT = 7,
   SANKHYA_NUMERICAL_ERROR = 8,
   SANKHYA_MODEL_ERROR = 9,
+  /** 10 is INFEASIBLE_OR_UNBOUNDED above. */
   SANKHYA_INTERRUPTED = 11
 } sankhya_solve_status;
 
@@ -200,7 +201,6 @@ sankhya_status sankhya_set_callback(sankhya_model* model,
  */
 sankhya_status sankhya_model_interrupt(sankhya_model* model);
 
-
 /* ---- Options ---------------------------------------------------------------------------- */
 
 /** Options preset to their documented defaults. Run `sankhya options` to list them. */
@@ -208,7 +208,8 @@ sankhya_options* sankhya_options_create(void);
 void sankhya_options_free(sankhya_options* options);
 
 sankhya_status sankhya_options_set_bool(sankhya_options* options, const char* name, int value);
-sankhya_status sankhya_options_set_int(sankhya_options* options, const char* name, int64_t value);
+sankhya_status sankhya_options_set_int(sankhya_options* options, const char* name,
+                                       int64_t value);
 sankhya_status sankhya_options_set_double(sankhya_options* options, const char* name,
                                           double value);
 sankhya_status sankhya_options_set_string(sankhya_options* options, const char* name,

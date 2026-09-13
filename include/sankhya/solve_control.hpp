@@ -2,8 +2,8 @@
 #pragma once
 
 #include <atomic>
-#include <functional>
 #include <cstdint>
+#include <functional>
 
 namespace sankhya {
 
@@ -42,9 +42,7 @@ class SolveControl {
 
   /// Request an immediate interruption of the solve.
   /// This is safe to call from another thread or a signal handler.
-  void interrupt() noexcept {
-    interrupt_requested_.store(true, std::memory_order_relaxed);
-  }
+  void interrupt() noexcept { interrupt_requested_.store(true, std::memory_order_relaxed); }
 
   /// Has an interruption been requested?
   [[nodiscard]] bool interruption_requested() const noexcept {
@@ -52,9 +50,7 @@ class SolveControl {
   }
 
   /// Reset the interruption flag. Call before starting a new solve.
-  void reset() noexcept {
-    interrupt_requested_.store(false, std::memory_order_relaxed);
-  }
+  void reset() noexcept { interrupt_requested_.store(false, std::memory_order_relaxed); }
 
  private:
   std::atomic<bool> interrupt_requested_{false};

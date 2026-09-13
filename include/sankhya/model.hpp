@@ -334,9 +334,7 @@ class Solution {
   std::string message;
 
   /// True when the status indicates a usable primal point.
-  [[nodiscard]] bool has_primal_values() const noexcept {
-    return has_point;
-  }
+  [[nodiscard]] bool has_primal_values() const noexcept { return has_point; }
 
   /// Clear the vectors and quality measurements, leaving the status intact.
   void clear_values() {

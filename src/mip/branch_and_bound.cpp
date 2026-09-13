@@ -38,9 +38,9 @@
 
 #include <fmt/format.h>
 
+#include "../core/stop_controller.hpp"
 #include "sankhya/timer.hpp"
 #include "sankhya/tolerances.hpp"
-#include "../core/stop_controller.hpp"
 
 #include "simplex/primal_simplex.hpp"
 
@@ -94,8 +94,13 @@ double fractionality(double value) {
 
 class BranchAndBound {
  public:
-  BranchAndBound(const Model& model, const Options& options, Logger& logger, SolveControl* control)
-      : original_(model), working_(model), options_(options), logger_(logger), control_(control) {
+  BranchAndBound(const Model& model, const Options& options, Logger& logger,
+                 SolveControl* control)
+      : original_(model),
+        working_(model),
+        options_(options),
+        logger_(logger),
+        control_(control) {
     integrality_tolerance_ = options.get_double("integrality_tolerance");
     relative_gap_target_ = options.get_double("mip_relative_gap");
     absolute_gap_target_ = options.get_double("mip_absolute_gap");
@@ -208,7 +213,7 @@ class BranchAndBound {
   [[nodiscard]] Solution solve_node() { return solve_node_with(node_options_); }
 
   [[nodiscard]] Solution solve_node_with(const Options& options) {
-    if (quadratic_) return qp::solve_convex_qp(working_, options, logger_);
+    if (quadratic_) return qp::solve_convex_qp(working_, options, logger_, control_);
     // WARM-STARTED DUAL SIMPLEX BELOW THE ROOT (#65). The basis in current_warm_ was
     // optimal for a problem that differs from this one by a bound or two, so it is dual
     // feasible here, which is exactly the state the dual simplex starts from. Measured
@@ -218,7 +223,8 @@ class BranchAndBound {
     // numerical answer at a node cannot be fathomed honestly, and the search below stops
     // on it, so it is worth one more solve to avoid.
     if (node_engine_dual_ && !current_warm_.empty()) {
-      Solution warm = solve_dual_simplex(working_, options, logger_, scaling_, &current_warm_);
+      Solution warm =
+          solve_dual_simplex(working_, options, logger_, scaling_, control_, &current_warm_);
       if (warm.status == SolveStatus::kOptimal || warm.status == SolveStatus::kInfeasible ||
           warm.status == SolveStatus::kUnbounded ||
           warm.status == SolveStatus::kIterationLimit) {
@@ -232,7 +238,7 @@ class BranchAndBound {
           to_string(warm.status));
       ++cold_fallbacks_;
     }
-    Solution cold = solve_primal_simplex(working_, options, logger_, scaling_);
+    Solution cold = solve_primal_simplex(working_, options, logger_, scaling_, control_);
     ++cold_node_solves_;
     cold_node_iterations_ += cold.iterations;
     return cold;
@@ -856,26 +862,50 @@ Solution BranchAndBound::run() {
       break;
     }
 
-    if (stop.should_stop([&]() {
-          open_bound = std::numeric_limits<double>::infinity();
-          for (const Index open_index : open_) {
-            open_bound = std::min(open_bound, nodes_[static_cast<std::size_t>(open_index)].bound);
-          }
-          Progress p;
-          p.phase = Progress::Phase::kTree;
-          p.iterations = 0; // Not tracking simplex iterations across the tree currently
-          p.nodes = nodes_explored_;
-          p.open_nodes = static_cast<long>(open_.size());
-          p.objective = have_incumbent_ ? incumbent_objective() : std::numeric_limits<double>::infinity();
-          p.best_bound = (model_.sense == ObjSense::kMaximize) ? -open_bound : open_bound;
-          p.gap = have_incumbent_ ? (incumbent_internal_ - open_bound) : std::numeric_limits<double>::infinity();
-          return p;
-        }, &stop_status)) {
+    // ALGORITHMIC OPEN BOUND: compute unconditionally when there is an incumbent so that
+    // the gap-target stopping condition below always sees a fresh value every iteration.
+    // The progress callback lambda reuses this when reporting and does NOT re-scan.
+    if (have_incumbent_) {
+      open_bound = std::numeric_limits<double>::infinity();
+      for (const Index open_index : open_) {
+        open_bound = std::min(open_bound, nodes_[static_cast<std::size_t>(open_index)].bound);
+      }
+    }
+
+    if (stop.should_stop(
+            [&]() {
+              Progress p;
+              p.phase = Progress::Phase::kTree;
+              p.iterations = 0;  // Not tracking simplex iterations across the tree currently
+              p.nodes = nodes_explored_;
+              p.open_nodes = static_cast<long>(open_.size());
+              p.objective = have_incumbent_ ? reported(incumbent_internal_)
+                                            : std::numeric_limits<double>::infinity();
+              // When an incumbent exists, open_bound was computed above this call; reuse it.
+              // When no incumbent exists yet, scan now for accurate reporting only.
+              double reporting_bound = open_bound;
+              if (!have_incumbent_) {
+                reporting_bound = std::numeric_limits<double>::infinity();
+                for (const Index open_index : open_) {
+                  reporting_bound = std::min(
+                      reporting_bound, nodes_[static_cast<std::size_t>(open_index)].bound);
+                }
+              }
+              p.best_bound =
+                  (original_.sense == ObjSense::kMaximize) ? -reporting_bound : reporting_bound;
+              p.gap = have_incumbent_ ? (incumbent_internal_ - open_bound)
+                                      : std::numeric_limits<double>::infinity();
+              return p;
+            },
+            &stop_status)) {
       limit_hit = true;
       solution.status = stop_status;
-      solution.message = stop_status == SolveStatus::kTimeLimit
-          ? fmt::format("stopped at the time limit after {:.2f}s and {} nodes", timer_.elapsed_seconds(), nodes_explored_)
-          : fmt::format("stopped by user interrupt after {:.2f}s and {} nodes", timer_.elapsed_seconds(), nodes_explored_);
+      solution.message =
+          stop_status == SolveStatus::kTimeLimit
+              ? fmt::format("stopped at the time limit after {:.2f}s and {} nodes",
+                            timer_.elapsed_seconds(), nodes_explored_)
+              : fmt::format("stopped by user interrupt after {:.2f}s and {} nodes",
+                            timer_.elapsed_seconds(), nodes_explored_);
       break;
     }
 
@@ -888,7 +918,7 @@ Solution BranchAndBound::run() {
     // gap means - it bounds how far the reported answer may be from proven optimal, not
     // which nodes are worth visiting.
     if (have_incumbent_) {
-      const double gap = have_incumbent_ ? (incumbent_internal_ - open_bound) : std::numeric_limits<double>::infinity();
+      const double gap = incumbent_internal_ - open_bound;
       // gap <= 0 means open_bound already >= the incumbent: every node still in the tree
       // is one can_prune() would fathom the moment it is popped, so nothing open can beat
       // what has already been found. That is proven optimality, not a tolerance being met
@@ -1248,7 +1278,8 @@ Solution BranchAndBound::run() {
 
 }  // namespace
 
-Solution solve_branch_and_bound(const Model& model, const Options& options, Logger& logger, SolveControl* control) {
+Solution solve_branch_and_bound(const Model& model, const Options& options, Logger& logger,
+                                SolveControl* control) {
   // ROOT CUTS, applied once before the search rather than per node.
   //
   // Integer rounding tightens a row IN PLACE, so unlike a generated cut it adds no row, grows
@@ -1263,7 +1294,8 @@ Solution solve_branch_and_bound(const Model& model, const Options& options, Logg
   Model tightened = model;
   const RowTightening effect = tighten_integral_rows(&tightened, logger);
 
-  BranchAndBound search(effect.rows_tightened > 0 ? tightened : model, options, logger);
+  BranchAndBound search(effect.rows_tightened > 0 ? tightened : model, options, logger,
+                        control);
   return search.run();
 }
 

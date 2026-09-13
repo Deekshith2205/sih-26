@@ -55,9 +55,9 @@
 
 #include <fmt/format.h>
 
+#include "../core/stop_controller.hpp"
 #include "sankhya/timer.hpp"
 #include "sankhya/tolerances.hpp"
-#include "../core/stop_controller.hpp"
 
 namespace sankhya::detail {
 
@@ -577,14 +577,16 @@ std::optional<Solution> Simplex::dual_loop(Timer& timer, Count* iterations_io) {
       }
 
       SolveStatus stop_status;
-      if (stop.should_stop([&]() {
-            Progress p;
-            p.phase = Progress::Phase::kLp;
-            p.iterations = iterations;
-            p.objective = kInfinity; // not valid during dual loop
-            p.best_bound = minimization_objective();
-            return p;
-          }, &stop_status)) {
+      if (stop.should_stop(
+              [&]() {
+                Progress p;
+                p.phase = Progress::Phase::kLp;
+                p.iterations = iterations;
+                p.objective = kInfinity;  // not valid during dual loop
+                p.best_bound = minimization_objective();
+                return p;
+              },
+              &stop_status)) {
         return stop_at_limit(stop_status,
                              stop_status == SolveStatus::kTimeLimit
                                  ? fmt::format("time limit {:g}s reached", time_limit_)

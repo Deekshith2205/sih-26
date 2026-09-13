@@ -820,6 +820,7 @@ Solution postsolve(const Result& result, const Model& original, const Solution& 
   solution.polish_iterations = reduced.polish_iterations;
   solution.nodes = reduced.nodes;
   solution.solve_seconds = reduced.solve_seconds;
+  solution.has_point = reduced.has_point;
 
   // Start from the reduced point, scattered back into original positions.
   for (std::size_t j = 0; j < result.col_to_original.size(); ++j) {

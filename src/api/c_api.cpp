@@ -14,6 +14,7 @@
 // reader's "a repeated entry is an error": a programmatic caller overwriting a cell is
 // ordinary, whereas a file containing the same cell twice is a defect in the file.
 
+#include <memory>
 #include "sankhya/sankhya.h"
 
 #include <exception>
@@ -378,8 +379,8 @@ sankhya_status sankhya_set_callback(sankhya_model* model,
       sankhya_progress c_prog;
       switch (cpp_prog.phase) {
         case sankhya::Progress::Phase::kPresolve: c_prog.phase = SANKHYA_PHASE_PRESOLVE; break;
-        case sankhya::Progress::Phase::kLp:       c_prog.phase = SANKHYA_PHASE_LP;       break;
-        case sankhya::Progress::Phase::kTree:     c_prog.phase = SANKHYA_PHASE_TREE;     break;
+        case sankhya::Progress::Phase::kLp: c_prog.phase = SANKHYA_PHASE_LP; break;
+        case sankhya::Progress::Phase::kTree: c_prog.phase = SANKHYA_PHASE_TREE; break;
       }
       c_prog.iterations = static_cast<int64_t>(cpp_prog.iterations);
       c_prog.nodes = static_cast<int64_t>(cpp_prog.nodes);
@@ -437,7 +438,8 @@ sankhya_status sankhya_options_set_bool(sankhya_options* options, const char* na
   });
 }
 
-sankhya_status sankhya_options_set_int(sankhya_options* options, const char* name, int64_t value) {
+sankhya_status sankhya_options_set_int(sankhya_options* options, const char* name,
+                                       int64_t value) {
   if (options == nullptr || name == nullptr) {
     return fail(SANKHYA_ERROR_ARGUMENT, "options or name is null");
   }

@@ -96,7 +96,11 @@ const char* class_name(ProblemClass c) {
 /// right. Downgrading is the honest outcome: the solve failed numerically, and saying so is
 /// worth more than a plausible-looking row.
 void refuse_a_non_finite_answer(Solution* solution, Logger& logger) {
-  const bool claims_a_point = sankhya::claims_a_point(*solution);
+  const bool claims_a_point = solution->status == SolveStatus::kOptimal ||
+                              solution->status == SolveStatus::kFeasible ||
+                              solution->status == SolveStatus::kIterationLimit ||
+                              solution->status == SolveStatus::kTimeLimit ||
+                              solution->status == SolveStatus::kInterrupted;
   if (!claims_a_point) return;
 
   const bool finite = std::isfinite(solution->objective) &&
@@ -241,7 +245,8 @@ constexpr double kPdhgShareOfTheTimeLimit = 0.7;
 
 void reconcile_status_with_measurement(Solution* solution, const Options& options,
                                        Logger& logger, bool check_dual) {
-  const bool claims_a_point = sankhya::claims_a_point(*solution);
+  const bool claims_a_point =
+      solution->status == SolveStatus::kOptimal || solution->status == SolveStatus::kFeasible;
   if (!claims_a_point) return;
 
   const double primal_tolerance = options.get_double("primal_feasibility_tolerance");
@@ -267,11 +272,13 @@ void reconcile_status_with_measurement(Solution* solution, const Options& option
         solution->primal_infeasibility_scaled, primal_tolerance);
     if (solution->status == SolveStatus::kInterrupted) {
       solution->clear_values();
-      solution->message = solution->message.empty() ? detail : solution->message + "; " + detail;
+      solution->message =
+          solution->message.empty() ? detail : solution->message + "; " + detail;
       logger.warning("{}", detail);
     } else {
       solution->status = SolveStatus::kNumericalError;
-      solution->message = solution->message.empty() ? detail : solution->message + "; " + detail;
+      solution->message =
+          solution->message.empty() ? detail : solution->message + "; " + detail;
       logger.warning("{}", detail);
     }
     return;
@@ -287,11 +294,13 @@ void reconcile_status_with_measurement(Solution* solution, const Options& option
         to_string(solution->status), solution->integrality_violation, integrality_tolerance);
     if (solution->status == SolveStatus::kInterrupted) {
       solution->clear_values();
-      solution->message = solution->message.empty() ? detail : solution->message + "; " + detail;
+      solution->message =
+          solution->message.empty() ? detail : solution->message + "; " + detail;
       logger.warning("{}", detail);
     } else {
       solution->status = SolveStatus::kNumericalError;
-      solution->message = solution->message.empty() ? detail : solution->message + "; " + detail;
+      solution->message =
+          solution->message.empty() ? detail : solution->message + "; " + detail;
       logger.warning("{}", detail);
     }
     return;

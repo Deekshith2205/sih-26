@@ -535,8 +535,9 @@ class Simplex {
 /// The scaled solve with its unscaled retry, for either engine. Defined in
 /// primal_simplex.cpp, where the portfolio logic and its evidence live.
 [[nodiscard]] Solution solve_with_scaling(const Model& model, const Options& options,
-                                          Logger& logger, const NodeScaling& cache, Engine engine,
-                                          const WarmStart* warm, SolveControl* control = nullptr);
+                                          Logger& logger, const NodeScaling& cache,
+                                          Engine engine, const WarmStart* warm,
+                                          SolveControl* control = nullptr);
 
 /// One row's candidate breakpoint, gathered in pass one of the Harris test and re-examined
 /// in pass two.

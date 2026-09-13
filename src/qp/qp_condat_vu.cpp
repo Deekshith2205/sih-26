@@ -51,11 +51,10 @@
 
 #include <fmt/format.h>
 
+#include "../core/stop_controller.hpp"
 #include "sankhya/timer.hpp"
 #include "sankhya/tolerances.hpp"
-#include "../core/stop_controller.hpp"
 
-#include "../la/scaling.hpp"
 #include "convexity.hpp"
 
 namespace sankhya::qp {
@@ -160,7 +159,8 @@ void hessian_multiply(const Model& model, const std::vector<double>& x,
 
 }  // namespace
 
-Solution solve_convex_qp(const Model& model, const Options& options, Logger& logger, SolveControl* control) {
+Solution solve_convex_qp(const Model& model, const Options& options, Logger& logger,
+                         SolveControl* control) {
   Timer timer;
   Solution solution;
   solution.allocate_for(model);
@@ -263,14 +263,16 @@ Solution solve_convex_qp(const Model& model, const Options& options, Logger& log
     // ---- termination, every 50 iterations -------------------------------------------------
     if (iterations % 50 != 0) continue;
 
-    if (stop.should_stop([&]() {
-          Progress p;
-          p.phase = Progress::Phase::kLp;
-          p.iterations = iterations;
-          p.objective = kInfinity; // QP does not track it mid-loop
-          p.best_bound = -kInfinity;
-          return p;
-        }, &stop_status)) {
+    if (stop.should_stop(
+            [&]() {
+              Progress p;
+              p.phase = Progress::Phase::kLp;
+              p.iterations = iterations;
+              p.objective = kInfinity;  // QP does not track it mid-loop
+              p.best_bound = -kInfinity;
+              return p;
+            },
+            &stop_status)) {
       status = stop_status;
       message = stop_status == SolveStatus::kTimeLimit
                     ? fmt::format("time limit {:.3g}s reached", time_limit)

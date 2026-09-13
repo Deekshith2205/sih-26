@@ -114,6 +114,7 @@ _STATUS_NAMES = {
     8: "numerical_error",
     9: "model_error",
     10: "infeasible_or_unbounded",
+    11: "interrupted",
 }
 
 
@@ -381,7 +382,8 @@ class Model:
         ``status == "infeasible"`` rather than raising.
 
         ``callback`` is an optional callable taking a `Progress` namedtuple and returning an int.
-        Returning a non-zero value requests an interrupt.
+        Returning a non-zero value requests an interrupt. If the callback raises an exception,
+        the solve is interrupted and the exception is propagated to the caller.
         """
         import concurrent.futures
 
@@ -391,10 +393,12 @@ class Model:
                 options.set(name, value)
 
         handle = ctypes.c_void_p()
+        callback_exc = None
 
         c_callback = None
         if callback is not None:
             def _wrapper(c_prog_ptr, user_data):
+                nonlocal callback_exc
                 try:
                     c_prog = c_prog_ptr.contents
                     phase_str = "presolve" if c_prog.phase == 0 else "lp" if c_prog.phase == 1 else "tree"
@@ -404,9 +408,9 @@ class Model:
                         elapsed_seconds=c_prog.elapsed_seconds, open_nodes=c_prog.open_nodes
                     )
                     return int(callback(p) or 0)
-                except Exception as e:
-                    print(f"Exception in Python callback: {e}")
-                    return 1 # stop on exception
+                except BaseException as e:
+                    callback_exc = e
+                    return 1 # request stop on exception
 
             c_callback = _library().sankhya_callback_type(_wrapper)
             _check(_library().sankhya_set_callback(self._handle, c_callback, None), "setting callback")
@@ -436,6 +440,9 @@ class Model:
                     self.interrupt()
                     # Keep looping so we wait for the C++ side to actually stop,
                     # unless the user sends another signal (handled gracefully).
+
+        if callback_exc is not None:
+            raise callback_exc
 
         return Result(handle.value, self.num_cols, self.num_rows)
 
