@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "sankhya/model.hpp"
 #include "sankhya/timer.hpp"
 

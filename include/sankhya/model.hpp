@@ -28,6 +28,8 @@
 // the QPS convention, so a QPLIB/QPS reader maps onto it without a transformation.
 #pragma once
 
+#include <atomic>
+#include <functional>
 #include <string>
 #include <vector>
 
