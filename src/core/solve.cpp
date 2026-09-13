@@ -96,12 +96,7 @@ const char* class_name(ProblemClass c) {
 /// right. Downgrading is the honest outcome: the solve failed numerically, and saying so is
 /// worth more than a plausible-looking row.
 void refuse_a_non_finite_answer(Solution* solution, Logger& logger) {
-  const bool claims_a_point = solution->status == SolveStatus::kOptimal ||
-                              solution->status == SolveStatus::kFeasible ||
-                              solution->status == SolveStatus::kIterationLimit ||
-                              solution->status == SolveStatus::kTimeLimit ||
-                              solution->status == SolveStatus::kInterrupted;
-  if (!claims_a_point) return;
+  if (!claims_a_point(solution->status)) return;
 
   const bool finite = std::isfinite(solution->objective) &&
                       std::all_of(solution->col_value.begin(), solution->col_value.end(),
@@ -180,7 +175,7 @@ void keep_only_a_proved_certificate(Solution* solution, const Model& model, Logg
 /// A polished answer replaces PDHG's only when it is better - optimal, or feasible with
 /// smaller scaled violations - so the polish cannot make the answer worse.
 void polish_with_the_interior_point(Solution* first, const Model& model, const Options& options,
-                                    Logger& logger, const Timer& timer) {
+                                    Logger& logger, SolveControl* control, const Timer& timer) {
   if (!options.get_bool("pdhg_polish")) return;
   if (first->status == SolveStatus::kOptimal || !claims_a_point(*first)) return;
   const auto n = static_cast<std::size_t>(model.num_cols());
@@ -215,7 +210,7 @@ void polish_with_the_interior_point(Solution* first, const Model& model, const O
   logger.info("Polish: handing PDHG's point to the interior point, {} iterations at most",
               polish.get_int("iteration_limit"));
   const ipm::WarmStart warm{first->col_value, first->row_dual, first->col_dual};
-  Solution polished = ipm::solve_ipm(model, polish, logger, nullptr, &warm);
+  Solution polished = ipm::solve_ipm(model, polish, logger, control, &warm);
 
   const auto worst = [](const Solution& s) {
     return std::max(s.primal_infeasibility_scaled, s.dual_infeasibility_scaled);
@@ -245,9 +240,7 @@ constexpr double kPdhgShareOfTheTimeLimit = 0.7;
 
 void reconcile_status_with_measurement(Solution* solution, const Options& options,
                                        Logger& logger, bool check_dual) {
-  const bool claims_a_point =
-      solution->status == SolveStatus::kOptimal || solution->status == SolveStatus::kFeasible;
-  if (!claims_a_point) return;
+  if (!claims_a_point(*solution)) return;
 
   const double primal_tolerance = options.get_double("primal_feasibility_tolerance");
   const double dual_tolerance = options.get_double("dual_feasibility_tolerance");
@@ -270,17 +263,10 @@ void reconcile_status_with_measurement(Solution* solution, const Options& option
         "not a feasible point",
         to_string(solution->status), solution->primal_infeasibility,
         solution->primal_infeasibility_scaled, primal_tolerance);
-    if (solution->status == SolveStatus::kInterrupted) {
-      solution->clear_values();
-      solution->message =
-          solution->message.empty() ? detail : solution->message + "; " + detail;
-      logger.warning("{}", detail);
-    } else {
-      solution->status = SolveStatus::kNumericalError;
-      solution->message =
-          solution->message.empty() ? detail : solution->message + "; " + detail;
-      logger.warning("{}", detail);
-    }
+    solution->status = SolveStatus::kNumericalError;
+    solution->message =
+        solution->message.empty() ? detail : solution->message + "; " + detail;
+    logger.warning("{}", detail);
     return;
   }
 
@@ -376,7 +362,7 @@ Solution solve(const Model& model, const Options& options, SolveControl* control
           first_pass.set_double("time_limit", time_limit * kPdhgShareOfTheTimeLimit);
         }
         Solution first = pdhg::solve_pdhg(target, first_pass, logger, control);
-        polish_with_the_interior_point(&first, target, options, logger, timer);
+        polish_with_the_interior_point(&first, target, options, logger, control, timer);
         return first;
       }
       return want_ipm    ? ipm::solve_ipm(target, options, logger, control)

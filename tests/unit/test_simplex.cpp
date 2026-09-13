@@ -23,7 +23,9 @@
 
 #include "sankhya/model.hpp"
 #include "sankhya/options.hpp"
+#include "sankhya/solve_control.hpp"
 #include "sankhya/tolerances.hpp"
+#include "util/logger.hpp"
 
 namespace sankhya {
 namespace {
@@ -417,6 +419,55 @@ TEST(PrimalSimplex, StopsAtTheIterationLimit) {
   const Solution solution = solve(model, options);
   EXPECT_EQ(solution.status, SolveStatus::kIterationLimit);
   EXPECT_EQ(solution.iterations, 1);
+}
+
+TEST(PrimalSimplex, RespectsSolveControlInterruptionWithThrottledCallback) {
+  // A degenerate problem that requires thousands of iterations.
+  constexpr int k = 8;
+  std::vector<double> cost;
+  for (int i = 0; i < k; ++i) {
+    for (int j = 0; j < k; ++j) {
+      cost.push_back(static_cast<double>((i * j) % 3) + 1.0);
+    }
+  }
+  const auto n = static_cast<std::size_t>(k * k);
+  std::vector<std::vector<double>> rows;
+  std::vector<double> bounds;
+  for (int i = 0; i < k; ++i) {
+    std::vector<double> row(n, 0.0);
+    for (int j = 0; j < k; ++j) row[static_cast<std::size_t>(i * k + j)] = 1.0;
+    rows.push_back(row);
+    bounds.push_back(1.0);
+  }
+  for (int j = 0; j < k; ++j) {
+    std::vector<double> row(n, 0.0);
+    for (int i = 0; i < k; ++i) row[static_cast<std::size_t>(i * k + j)] = 1.0;
+    rows.push_back(row);
+    bounds.push_back(1.0);
+  }
+  const Model model = make_model(ObjSense::kMinimize, cost, std::vector<double>(n, 0.0),
+                                 std::vector<double>(n, kInf), rows, bounds, bounds);
+
+  sankhya::SolveControl control;
+  int callback_count = 0;
+  control.progress_callback = [&](const sankhya::Progress&) {
+    if (++callback_count == 2) {
+      // Return nonzero to interrupt on the 2nd callback.
+      // Because callbacks are throttled (0.1s), many iterations will have passed.
+      return 1;
+    }
+    return 0;
+  };
+
+  Options options;
+  options.set_bool("log_to_console", false);
+  Logger quiet(stdout, LogLevel::kOff);
+  const Solution solution = solve_primal_simplex(model, options, quiet, &control);
+
+  EXPECT_EQ(solution.status, SolveStatus::kInterrupted);
+  EXPECT_TRUE(claims_a_point(solution));
+  // The solver should have done substantially more iterations than 2
+  EXPECT_GT(solution.iterations, callback_count);
 }
 
 // =========================================================================================

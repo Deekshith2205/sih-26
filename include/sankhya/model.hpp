@@ -238,9 +238,7 @@ class Solution {
   // which is this class's established way of saying "the engine produced nothing of that
   // kind". See include/sankhya/certificate.hpp for what they mean and how they are checked.
 
-  /// Is there an explicit point structure here?
   /// A valid point has all columns and row activities populated and semantically valid.
-  bool has_point = false;
 
   /// Farkas multipliers, one per row, when `status` is kInfeasible and the engine could
   /// prove it. Aggregating the rows with these weights yields an inequality no point in the
@@ -333,12 +331,8 @@ class Solution {
   /// Free-form detail, especially for kNumericalError and kModelError.
   std::string message;
 
-  /// True when the status indicates a usable primal point.
-  [[nodiscard]] bool has_primal_values() const noexcept { return has_point; }
-
   /// Clear the vectors and quality measurements, leaving the status intact.
   void clear_values() {
-    has_point = false;
     col_value.clear();
     row_activity.clear();
     row_dual.clear();
@@ -381,23 +375,26 @@ class Solution {
 /// point, which reports no objective and infinite gaps rather than a point (see
 /// `src/mip/branch_and_bound.cpp`); that case predates this predicate and is unchanged by it.
 ///
-/// When interrupted, a point is only present if the solver was actively holding one.
-[[nodiscard]] constexpr bool claims_a_point(const Solution& solution) noexcept {
-  if (solution.status == SolveStatus::kInterrupted) return solution.has_point;
-  switch (solution.status) {
+[[nodiscard]] constexpr bool claims_a_point(SolveStatus status) noexcept {
+  switch (status) {
     case SolveStatus::kOptimal:
     case SolveStatus::kFeasible:
     case SolveStatus::kUnbounded:
     case SolveStatus::kIterationLimit:
     case SolveStatus::kTimeLimit:
     case SolveStatus::kNodeLimit:
-    case SolveStatus::kNumericalError: return true;
+    case SolveStatus::kInterrupted: return true;
     case SolveStatus::kNotSolved:
     case SolveStatus::kInfeasible:
     case SolveStatus::kInfeasibleOrUnbounded:
+    case SolveStatus::kNumericalError:
     case SolveStatus::kModelError: return false;
     default: return false;
   }
+}
+
+[[nodiscard]] inline bool claims_a_point(const Solution& solution) noexcept {
+  return claims_a_point(solution.status);
 }
 
 // =========================================================================================

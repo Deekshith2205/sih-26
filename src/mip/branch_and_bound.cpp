@@ -878,7 +878,7 @@ Solution BranchAndBound::run() {
               p.phase = Progress::Phase::kTree;
               p.iterations = 0;  // Not tracking simplex iterations across the tree currently
               p.nodes = nodes_explored_;
-              p.open_nodes = static_cast<long>(open_.size());
+              p.open_nodes = static_cast<std::int64_t>(open_.size());
               p.objective = have_incumbent_ ? reported(incumbent_internal_)
                                             : std::numeric_limits<double>::infinity();
               // When an incumbent exists, open_bound was computed above this call; reuse it.
@@ -1234,7 +1234,6 @@ Solution BranchAndBound::run() {
   }
 
   solution.col_value = incumbent_x_;
-  solution.has_point = true;
   solution.nodes = nodes_explored_;
   solution.solve_seconds = timer_.elapsed_seconds();
 

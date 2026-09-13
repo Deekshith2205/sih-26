@@ -223,6 +223,9 @@ sankhya_status sankhya_options_set_string(sankhya_options* options, const char* 
  * `options` may be NULL for the defaults. The return value reports whether the CALL
  * succeeded, not what the solver concluded: a model proved infeasible returns SANKHYA_OK
  * with a solution whose status is SANKHYA_INFEASIBLE. Check both.
+ *
+ * The `model` parameter is non-const because the solver may register interruption state
+ * or a progress callback on it during the solve.
  */
 sankhya_status sankhya_solve(sankhya_model* model, const sankhya_options* options,
                              sankhya_solution** solution);

@@ -252,8 +252,8 @@ TEST(InteriorPoint, RespectsSolveControlInterruption) {
   const Solution solved = ipm::solve_ipm(model, options, quiet, &control);
   EXPECT_EQ(solved.status, SolveStatus::kInterrupted) << solved.message;
   // IPM returns the starting/best-available point even when interrupted before the first
-  // iteration, matching the kTimeLimit contract (#348).
-  EXPECT_TRUE(solved.has_point);
+  // iteration, matching the kTimeLimit contract (#223).
+  EXPECT_TRUE(claims_a_point(solved));
 }
 
 }  // namespace

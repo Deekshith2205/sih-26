@@ -644,7 +644,6 @@ Solution InteriorPoint::finish(SolveStatus status, const std::string& message, C
     solution.dual_bound = model_.sense == ObjSense::kMaximize ? kInfinity : -kInfinity;
     return solution;
   }
-  solution.has_point = true;
   const double sense = model_.sense_multiplier();
   for (Index j = 0; j < n_; ++j) {
     const auto u = static_cast<std::size_t>(j);

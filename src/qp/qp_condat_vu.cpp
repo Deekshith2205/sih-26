@@ -321,7 +321,6 @@ Solution solve_convex_qp(const Model& model, const Options& options, Logger& log
   solution.status = status;
   solution.message = message;
   solution.col_value.assign(x.begin(), x.end());
-  solution.has_point = true;
   for (Index i = 0; i < m; ++i) {
     solution.row_dual[static_cast<std::size_t>(i)] = -sense * y[static_cast<std::size_t>(i)];
   }

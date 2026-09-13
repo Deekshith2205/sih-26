@@ -269,7 +269,7 @@ int main(int argc, char** argv) {
     std::signal(SIGINT, SIG_DFL);
 
     fmt::print("\n{:<22}{}\n", "status", sankhya::to_string(solution.status));
-    if (solution.has_primal_values()) {
+    if (sankhya::claims_a_point(solution)) {
       fmt::print("{:<22}{:.12g}\n", "objective", solution.objective);
       fmt::print("{:<22}{:.12g}\n", "dual bound", solution.dual_bound);
     }

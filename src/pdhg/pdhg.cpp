@@ -665,7 +665,6 @@ Solution solve_pdhg(const Model& model, const Options& options, Logger& logger,
     const auto u = static_cast<std::size_t>(j);
     solution.col_value[u] = best_x.empty() ? 0.0 : best_x[u];
   }
-  solution.has_point = (iteration > 0);
   // Recompute the reduced costs at the reported point so the .sol file is self-consistent.
   const Residuals final_residuals = evaluate(problem, best_x, best_y, &activity, &reduced);
   for (Index j = 0; j < cols; ++j) {

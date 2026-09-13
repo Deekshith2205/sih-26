@@ -1149,7 +1149,6 @@ Solution Simplex::finish(SolveStatus status, const std::string& message, Count i
     solution.dual_bound = status == SolveStatus::kInfeasible ? kInfinity : -kInfinity;
     return solution;
   }
-  solution.has_point = true;
 
   const double sense = model_.sense_multiplier();
   for (Index j = 0; j < n_; ++j) {

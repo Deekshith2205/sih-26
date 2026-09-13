@@ -19,7 +19,9 @@
 
 #include "sankhya/model.hpp"
 #include "sankhya/options.hpp"
+#include "sankhya/solve_control.hpp"
 #include "sankhya/tolerances.hpp"
+#include "util/logger.hpp"
 
 #include "oracles/lp_generator.hpp"
 #include "oracles/rational_simplex.hpp"
@@ -214,6 +216,28 @@ TEST(BranchAndBound, ZeroOneKnapsack) {
   EXPECT_NEAR(s.col_value[0], 1.0, 1e-6);
   EXPECT_NEAR(s.col_value[1], 1.0, 1e-6);
   EXPECT_DOUBLE_EQ(s.integrality_violation, 0.0);
+}
+
+TEST(BranchAndBound, RespectsSolveControlInterruptionWithCallback) {
+  const Model model =
+      make_milp({{5.0, 4.0, 3.0, 2.0}}, {-kInfinity}, {9.0}, {-10.0, -7.0, -4.0, -3.0},
+                {1.0, 1.0, 1.0, 1.0}, {true, true, true, true});
+
+  sankhya::SolveControl control;
+  int callback_count = 0;
+  control.progress_callback = [&](const sankhya::Progress&) {
+    if (++callback_count == 5) {
+      return 1;
+    }
+    return 0;
+  };
+
+  Logger quiet(stdout, LogLevel::kOff);
+  const Solution s = mip::solve_branch_and_bound(model, mip_options(), quiet, &control);
+  EXPECT_EQ(s.status, SolveStatus::kInterrupted);
+  EXPECT_TRUE(claims_a_point(s));
+  EXPECT_GT(s.nodes, 0);
+  EXPECT_LE(s.nodes, 100); // node count is bounded
 }
 
 TEST(BranchAndBound, TheRelaxationIsNotTheAnswer) {
