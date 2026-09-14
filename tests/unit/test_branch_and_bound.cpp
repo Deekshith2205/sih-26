@@ -248,34 +248,35 @@ TEST(BranchAndBound, RespectsSolveControlInterruptionWithCallback) {
   EXPECT_LE(s.nodes, 100);  // node count is bounded
 }
 
-TEST(BranchAndBound, ThrottlesProgressCallbackAcrossNodes) {
-  // A mathematically hard knapsack instance (Chvátal / Jeroslow style).
-  // Why this forces a massive tree for this specific solver:
-  // 1. All weights are exactly 2, and capacity is an odd number (17). The LP relaxation
-  //    always leaves exactly one item fractional (at 0.5) to fill the capacity perfectly.
-  // 2. Profits are almost identical (2.0 + infinitesimal perturbation). The LP bound is
-  //    exactly 1.0 better than the true integer optimum (the gap is half an item).
-  // 3. Branching on any variable replaces it with the next-best item, degrading the LP
-  //    bound by only the perturbation (~0.0005). Thus, `can_prune()` cannot fathom any
-  //    node by bound.
-  // 4. The tree must branch until either 9 items are forced to 1 (infeasible) or 9 items
-  //    are forced to 0 (the remaining items cannot beat the incumbent).
-  // For n=17, the corresponding full search tree contains 97,239 nodes.
-  // The test only requires the solver to visit >1,000 of them. It is deterministic.
-  const std::size_t n = 17;
-  std::vector<double> obj(n);
-  std::vector<double> weights(n, 2.0);
-  std::vector<double> upper(n, 1.0);
-  std::vector<bool> is_int(n, true);
-  const double capacity = 17.0;
-
-  for (std::size_t i = 0; i < n; ++i) {
-    // Perturb profits strictly decreasingly so the LP choice is deterministic.
-    // Minimising -profit maximizes profit.
-    obj[i] = -(2.0 + (static_cast<double>(n - i) * 0.001));
+TEST(BranchAndBound, TheCallbackRateIsBoundedAcrossTheTree) {
+  // #223's second acceptance box: a counting callback on a search of many nodes is called
+  // a bounded number of times. The window is 100 ms; a MILP whose nodes are microseconds
+  // must not call once per node, which is what a per-engine window did (every node's LP
+  // built its own StopController and fired the callback on its first check).
+  //
+  // A market-split instance (Cornuejols & Dawande 1998): three equalities over twenty
+  // binaries with coefficients in [0, 99] and right-hand sides at half the row sums. These
+  // are built to defeat branch-and-bound, and the node limit is what ends the search - so
+  // the node count is fixed by construction rather than by how clever the search is.
+  constexpr int kRows = 3;
+  constexpr int kCols = 20;
+  std::mt19937 rng(20260914);
+  std::uniform_int_distribution<int> coefficient(0, 99);
+  std::vector<std::vector<double>> rows;
+  std::vector<double> rhs;
+  for (int i = 0; i < kRows; ++i) {
+    std::vector<double> row;
+    double sum = 0.0;
+    for (int j = 0; j < kCols; ++j) {
+      row.push_back(static_cast<double>(coefficient(rng)));
+      sum += row.back();
+    }
+    rows.push_back(row);
+    rhs.push_back(std::floor(sum / 2.0));
   }
-
-  const Model model = make_milp({weights}, {-kInfinity}, {capacity}, obj, upper, is_int);
+  const Model model =
+      make_milp(rows, rhs, rhs, std::vector<double>(kCols, 1.0),
+                std::vector<double>(kCols, 1.0), std::vector<bool>(kCols, true));
 
   sankhya::SolveControl control;
   int callback_count = 0;
@@ -283,18 +284,17 @@ TEST(BranchAndBound, ThrottlesProgressCallbackAcrossNodes) {
     ++callback_count;
     return 0;
   };
-
   Options options = mip_options();
-  options.set_int("node_limit", 1000000);  // safety cap; instance solves well under this
-
-  const auto start_time = std::chrono::steady_clock::now();
+  options.set_int("node_limit", 1500);
   const Solution s = solve(model, options, &control);
-  const auto end_time = std::chrono::steady_clock::now();
-  const double elapsed = std::chrono::duration<double>(end_time - start_time).count();
 
-  EXPECT_EQ(s.status, SolveStatus::kOptimal);
-  EXPECT_GT(s.nodes, 1000);
-  EXPECT_LE(callback_count, (elapsed / 0.1) + 2.0);
+  ASSERT_GE(s.nodes, 500) << "the instance was meant to take the search to its node limit: "
+                          << to_string(s.status) << " " << s.message;
+  EXPECT_GE(callback_count, 1);
+  const double allowed = s.solve_seconds / 0.1 + 2.0;
+  EXPECT_LE(static_cast<double>(callback_count), allowed)
+      << callback_count << " callbacks over " << s.nodes << " nodes in " << s.solve_seconds
+      << " s: the window is per engine call, not per solve";
 }
 
 TEST(BranchAndBound, TheRelaxationIsNotTheAnswer) {

@@ -1237,7 +1237,14 @@ Solution BranchAndBound::run() {
       solution.dual_infeasibility = best_available_point.dual_infeasibility;
       solution.dual_infeasibility_scaled = best_available_point.dual_infeasibility_scaled;
       solution.integrality_violation = best_available_point.integrality_violation;
-      solution.iterations = best_available_point.iterations;
+      solution.iterations = warm_node_iterations_ + cold_node_iterations_;
+      // A LIMIT WITHOUT AN INCUMBENT STILL SHOWS A POINT, and says what it is. `objective`
+      // on a MILP has always meant the incumbent's value; a reader who finds a value here
+      // must not take a fractional relaxation for an integer solution.
+      solution.message += fmt::format(
+          "; no integer feasible point was found, so the point reported is the last LP "
+          "relaxation, fractional by {:.3e}",
+          solution.integrality_violation);
     } else {
       // NO POINT WAS FOUND, so there is no objective to report. Leaving these at their
       // defaults said objective 0, bound 0, gap 0 - and a gap of zero means CLOSED, which is

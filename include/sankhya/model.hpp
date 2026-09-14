@@ -74,12 +74,20 @@ enum class SolveStatus : std::uint8_t {
   /// achieved gap in the message (#188).
   kFeasible,
   kIterationLimit,
+  /// The point in hand when the limit fell. On a MILP with no incumbent yet, that point is
+  /// the last node's LP relaxation - fractional, and said so in the message - because a
+  /// limited search that found nothing still has a point to show, and a caller who wants
+  /// integrality reads integrality_violation (#223).
   kTimeLimit,
   kNodeLimit,
   kNumericalError,
   kModelError,
+  /// Stopped by the caller - a progress callback that returned non-zero, SolveControl::
+  /// interrupt(), or SIGINT on the CLI. Carries a point exactly as kTimeLimit does (#223).
   kInterrupted
 };
+
+[[nodiscard]] constexpr bool claims_a_point(SolveStatus status) noexcept;
 
 // =========================================================================================
 
@@ -330,6 +338,10 @@ class Solution {
 
   /// Free-form detail, especially for kNumericalError and kModelError.
   std::string message;
+
+  /// True when the status says a point is reported; the same answer as
+  /// claims_a_point(status), kept because this interface is frozen (CLAUDE.md).
+  [[nodiscard]] bool has_primal_values() const noexcept { return claims_a_point(status); }
 
   /// Clear the vectors and quality measurements, leaving the status intact.
   void clear_values() {

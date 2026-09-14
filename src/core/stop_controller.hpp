@@ -14,8 +14,9 @@ namespace sankhya {
 
 /// Unified checker for time limits, user interruptions, and progress callbacks.
 ///
-/// Designed to be called at safe points inside the solver engines. It ensures that
-/// callbacks are throttled (e.g. to 100ms) without interfering with solver math.
+/// Designed to be called at safe points inside the solver engines. The callback's window
+/// is kept by the SolveControl it checks (see there for why), so one is built per engine
+/// call without the callback firing once per engine call.
 class StopController {
  public:
   StopController(SolveControl* control, const Timer& timer, double time_limit)
@@ -38,11 +39,7 @@ class StopController {
     }
 
     if (control_ && control_->progress_callback) {
-      auto now = std::chrono::steady_clock::now();
-      if (!control_->first_callback_invoked ||
-          std::chrono::duration<double>(now - control_->last_callback_time).count() >= 0.1) {
-        control_->first_callback_invoked = true;
-        control_->last_callback_time = now;
+      if (control_->callback_due()) {
         Progress p = get_progress();
         p.elapsed_seconds = elapsed;
         if (control_->progress_callback(p) != 0) {
