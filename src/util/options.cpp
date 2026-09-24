@@ -1268,6 +1268,11 @@ const std::vector<OptionSpec>& Options::registry() {
          "exactly at every restart to prevent rounding drift. "
          "CURRENTLY A STUB: the optimisation is not active. Default OFF until the A/B "
          "benchmark confirms per-iteration time savings on CPU and GPU.",
+        {"pdhg_geometric_evaluation",
+         OptionType::Bool,
+         false,
+         "Schedule early PDHG convergence evaluations geometrically (1, 2, 4, 8...) when "
+         "the interaction term is zero, rather than every iteration (#480). Default off.",
          0.0,
          0.0,
          {}});

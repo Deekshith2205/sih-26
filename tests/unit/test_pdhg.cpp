@@ -684,6 +684,33 @@ TEST(Pdhg, PolishDeclinesWhenTheFactorCapSaysSoAndTheFirstOrderAnswerStands) {
 }
 
 }  // namespace
+
+namespace pdhg {
+extern int pdhg_evaluations_for_testing;
+}
+namespace {
+TEST(Pdhg, OffTickEvaluationIsGeometricallyScheduled) {
+  // A small problem that exercises the no_information logic in PDHG.
+  // We force a large evaluation interval and check that evaluations
+  // do not happen on every single iteration when no_information is true.
+  const Model model = make_lp({{1.0, 1.0}}, {2.0}, {kInfinity}, {1.0, 1.0});
+  pdhg::pdhg_evaluations_for_testing = 0;
+
+  Options options = pdhg_options(1e-8);
+  options.set_bool("pdhg_geometric_evaluation", true);
+
+  const Solution s = solve(model, options);
+  EXPECT_EQ(s.status, SolveStatus::kOptimal);
+
+  // Verify that the off-tick evaluations are spaced out exactly as the geometric schedule specifies.
+  // The first few steps have interaction <= 0. If it evaluated every time, there would be 4 evaluations
+  // (iterations 1, 2, 3, and the termination check). With geometric scheduling, iteration 3 is skipped.
+  EXPECT_GT(s.iterations, 10);
+  EXPECT_LT(s.iterations, 80); // Verify it terminates before the next tick (kEvaluationInterval is 40).
+  EXPECT_EQ(pdhg::pdhg_evaluations_for_testing, 3);
+}
+
+}  // namespace
 }  // namespace sankhya
 
 namespace sankhya {
