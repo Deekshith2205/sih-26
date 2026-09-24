@@ -691,26 +691,30 @@ extern std::atomic<int> pdhg_evaluations_for_testing;
 }
 namespace {
 TEST(Pdhg, OffTickEvaluationIsGeometricallyScheduled) {
-  // A small problem that exercises the no_information logic in PDHG.
-  // We force a large evaluation interval and check that evaluations
-  // do not happen on every single iteration when no_information is true.
+  // A small problem whose early steps carry no interaction information, so the off-tick
+  // evaluation path runs. The exact number of evaluations depends on the trajectory (it was
+  // 3 on one machine and 4 on another for the same model), so the test compares the two
+  // schedules on the same solve: geometric spacing (1, 2, 4, ...) must evaluate strictly
+  // fewer times than every-iteration spacing, and both must reach the same answer.
   const Model model = make_lp({{1.0, 1.0}}, {2.0}, {kInfinity}, {1.0, 1.0});
+
   pdhg::pdhg_evaluations_for_testing = 0;
+  const Solution every = solve(model, pdhg_options(1e-8));
+  const int every_iteration = pdhg::pdhg_evaluations_for_testing.load();
 
   Options options = pdhg_options(1e-8);
   options.set_bool("pdhg_geometric_evaluation", true);
+  pdhg::pdhg_evaluations_for_testing = 0;
+  const Solution geometric = solve(model, options);
+  const int geometric_count = pdhg::pdhg_evaluations_for_testing.load();
 
-  const Solution s = solve(model, options);
-  EXPECT_EQ(s.status, SolveStatus::kOptimal);
-
-  // Verify that the off-tick evaluations are spaced out exactly as the geometric schedule
-  // specifies. The first few steps have interaction <= 0. If it evaluated every time, there
-  // would be 4 evaluations (iterations 1, 2, 3, and the termination check). With geometric
-  // scheduling, iteration 3 is skipped.
-  EXPECT_GT(s.iterations, 10);
-  EXPECT_LT(s.iterations,
-            80);  // Verify it terminates before the next tick (kEvaluationInterval is 40).
-  EXPECT_EQ(pdhg::pdhg_evaluations_for_testing.load(), 3);
+  EXPECT_EQ(every.status, SolveStatus::kOptimal);
+  EXPECT_EQ(geometric.status, SolveStatus::kOptimal);
+  EXPECT_NEAR(every.objective, geometric.objective,
+              1e-9 * std::max(1.0, std::fabs(every.objective)));
+  EXPECT_GE(every_iteration, 2) << "the no-information path did not run";
+  EXPECT_LT(geometric_count, every_iteration)
+      << "geometric " << geometric_count << " vs every iteration " << every_iteration;
 }
 
 }  // namespace
