@@ -691,12 +691,13 @@ extern std::atomic<int> pdhg_evaluations_for_testing;
 }
 namespace {
 TEST(Pdhg, OffTickEvaluationIsGeometricallyScheduled) {
-  // A small problem whose early steps carry no interaction information, so the off-tick
-  // evaluation path runs. The exact number of evaluations depends on the trajectory (it was
-  // 3 on one machine and 4 on another for the same model), so the test compares the two
-  // schedules on the same solve: geometric spacing (1, 2, 4, ...) must evaluate strictly
-  // fewer times than every-iteration spacing, and both must reach the same answer.
-  const Model model = make_lp({{1.0, 1.0}}, {2.0}, {kInfinity}, {1.0, 1.0});
+  // A small problem that exercises the no_information logic in PDHG. The model keeps
+  // the interaction term at zero for consecutive iterations. Restart is disabled so both
+  // solves follow the exact same trajectory. The legacy mode evaluates on every
+  // no-information iteration, while the geometric mode evaluates at consecutive
+  // no-information counts 1, 2, 4, ... The test intentionally compares the two evaluation
+  // counts rather than hard-coding an expected count.
+  const Model model = make_lp({{1.0}}, {-kInfinity}, {kInfinity}, {-0.01}, {1.0});
 
   Options options = pdhg_options(1e-8);
   options.set_bool("pdhg_restart", false);
