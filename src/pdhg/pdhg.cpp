@@ -41,6 +41,7 @@
 #include "pdhg_evaluate.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <limits>
 #include <string>
@@ -73,7 +74,9 @@ double project(double value, double lower, double upper) {
 
 }  // namespace
 
-int pdhg_evaluations_for_testing = 0;
+// A test seam (#480): the count of convergence evaluations in the last solve. Atomic
+// because the engine race runs engines on threads of their own.
+std::atomic<int> pdhg_evaluations_for_testing{0};
 
 Solution solve_pdhg(const Model& model, const Options& options, Logger& logger,
                     SolveControl* control) {
