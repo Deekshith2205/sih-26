@@ -698,11 +698,13 @@ TEST(Pdhg, OffTickEvaluationIsGeometricallyScheduled) {
   // fewer times than every-iteration spacing, and both must reach the same answer.
   const Model model = make_lp({{1.0, 1.0}}, {2.0}, {kInfinity}, {1.0, 1.0});
 
+  Options options = pdhg_options(1e-8);
+  options.set_bool("pdhg_restart", false);
+
   pdhg::pdhg_evaluations_for_testing = 0;
-  const Solution every = solve(model, pdhg_options(1e-8));
+  const Solution every = solve(model, options);
   const int every_iteration = pdhg::pdhg_evaluations_for_testing.load();
 
-  Options options = pdhg_options(1e-8);
   options.set_bool("pdhg_geometric_evaluation", true);
   pdhg::pdhg_evaluations_for_testing = 0;
   const Solution geometric = solve(model, options);
